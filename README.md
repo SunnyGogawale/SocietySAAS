@@ -11,12 +11,12 @@ resolve applicable open decisions before building business modules.
 
 ## Applications
 
-| Workspace                    | Stack                          | Purpose                                                 |
-| ---------------------------- | ------------------------------ | ------------------------------------------------------- |
-| `@societysaas/web`           | React, Vite, JavaScript        | Responsive administrator/owner web shell                |
-| `@societysaas/mobile`        | React Native, Expo, JavaScript | Native-capable mobile navigation and screen shell       |
-| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API foundation and health/readiness endpoints |
-| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii           |
+| Workspace                    | Stack                          | Purpose                                                              |
+| ---------------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| `@societysaas/web`           | React, Vite, JavaScript        | Responsive administrator/owner web shell                             |
+| `@societysaas/mobile`        | React Native, Expo, JavaScript | Native-capable mobile navigation and screen shell                    |
+| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, and health endpoints |
+| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                        |
 
 ## Prerequisites
 
@@ -43,6 +43,9 @@ npm run dev:mobile
 The applications are separate processes. The backend listens on port `4000` by
 default; Vite uses `5173`; Expo uses its normal development server. Environment
 examples contain placeholders only. Never commit `.env` files or real credentials.
+Configure SMTP values in `apps/backend/.env` before issuing invitations or enabling
+email verification. A reset request stays deliberately generic when SMTP is not
+configured; no reset email is sent in that case.
 
 ## API foundation
 
@@ -54,6 +57,39 @@ examples contain placeholders only. Never commit `.env` files or real credential
 "requestId": "..." }`.
 - Requests accept a configurable JSON/form body size limit. CORS origins, port,
   logging level, and MongoDB URL are environment-configurable.
+- `POST /api/v1/auth/login`, `/auth/logout`, `/auth/me`, `/auth/profile`,
+  `/auth/password/forgot`, `/auth/password/reset`, `/auth/email/verify`, and
+  `/auth/invitations/accept` provide authentication and account lifecycle.
+- `GET /api/v1/auth/societies` lists the caller's active society memberships.
+  `POST /api/v1/auth/societies/:societyId/select` verifies and stores the selected
+  society on the server-side session.
+- Platform society and tenant membership endpoints are protected by platform role,
+  active membership, and permission middleware; see the backend route modules.
+
+## Authentication setup
+
+The web client uses an `HttpOnly`, `SameSite=Strict` session cookie plus a
+double-submit CSRF token for writes. The mobile app requests bearer sessions and
+stores the opaque session token with Expo SecureStore. The backend stores only a
+SHA-256 digest of session and one-time tokens, hashes passwords with bcrypt, and
+audits sign-in, sign-out, denied access, invitations, membership changes, and
+password/email verification events.
+
+Create the initial platform administrator once, after starting MongoDB and setting
+the backend `.env`:
+
+```sh
+npm run admin:create-super-admin --workspace @societysaas/backend
+```
+
+The password is prompted without echo. The script refuses to create another
+platform administrator once one exists. Then sign in as that administrator, create
+societies through the platform API, and invite the first Society Admin by email.
+
+Society-scoped APIs require an active server-selected membership. Each request
+revalidates that membership and the active society; changing the URL, request
+body, or query parameter cannot change authorization scope. Revoked memberships
+stop authorizing the next request.
 
 No sample account, tenant data, business endpoint, or seeded database is included.
 
@@ -100,6 +136,8 @@ directories intentionally contain no business logic.
 
 - Configure CORS with an explicit comma-separated allowlist in
   `apps/backend/.env`; do not use a wildcard with credentialed requests.
+- The default rate-limit store is process-local. Configure a shared rate-limit
+  store before running multiple backend instances behind a load balancer.
 - Use TLS and managed secrets in deployed environments. The example configuration
   is for local development and does not replace production hardening.
 - Health endpoints contain no user or tenant data. The readiness endpoint is
@@ -120,10 +158,10 @@ directories intentionally contain no business logic.
   React Native ESLint plugins currently declare peer support only through ESLint
   9, so the scaffold retains ESLint 9 until compatible plugins or a suitable
   replacement linter are available.
-- `npm audit --omit=dev` currently reports transitive advisories in the Expo CLI /
-  config toolchain (`deepmerge` and the CLI's nested Zod). npm only offers a forced
-  downgrade to Expo SDK 54 as an automated fix; that breaking SDK downgrade was
-  not applied. Review and update the Expo toolchain when a compatible patched
+- `npm audit` currently reports 8 transitive advisories (3 high, 5 low) in the Expo
+  CLI/config toolchain (`deepmerge` and the CLI's nested Zod). npm only offers a
+  forced downgrade to Expo SDK 54 as an automated fix; that breaking SDK downgrade
+  was not applied. Review and update the Expo toolchain when a compatible patched
   release is available.
 - The backend test and build commands do not require a running MongoDB. Starting
   the backend server does: it connects to `MONGODB_URI` before listening.

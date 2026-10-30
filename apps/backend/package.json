@@ -6,20 +6,26 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build": "node --check src/server.js && node --check src/app.js",
-    "test": "node --test"
+    "build": "node --check src/server.js && node --check src/app.js && node --check scripts/createSuperAdmin.js",
+    "test": "node --test --test-concurrency=1",
+    "admin:create-super-admin": "node scripts/createSuperAdmin.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.2",
     "helmet": "^8.1.0",
     "mongoose": "^9.11.4",
+    "nodemailer": "^10.3.1",
     "pino": "^10.3.1",
     "pino-http": "^10.5.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "mongodb-memory-server": "^11.3.0",
     "supertest": "^7.1.4"
   }
 }

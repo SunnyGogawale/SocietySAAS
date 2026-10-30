@@ -40,6 +40,7 @@ export default [
   {
     files: ['apps/mobile/**/*.{js,jsx}'],
     plugins: { 'react-native': reactNative },
+    languageOptions: { globals: { process: 'readonly' } },
     rules: {
       'react-native/no-unused-styles': 'warn',
       'react-native/no-inline-styles': 'off',

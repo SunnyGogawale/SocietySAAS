@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext.jsx';
+import { Alert } from '../components/ui/Alert.jsx';
 
 const navigation = [
   { label: 'Overview', path: '/' },
@@ -9,6 +11,28 @@ const navigation = [
 
 export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const { activeSociety, isAuthenticated, logout, selectSociety, societies, user } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    setFeedback('');
+    try {
+      await logout();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      setFeedback(error.message);
+    }
+  }
+
+  async function handleSocietyChange(event) {
+    setFeedback('');
+    try {
+      await selectSociety(event.target.value);
+    } catch (error) {
+      setFeedback(error.message);
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -61,16 +85,49 @@ export default function AppLayout() {
           </button>
           <div className="topbar__context">
             <span className="topbar__eyebrow">Society management</span>
-            <span className="status-badge status-badge--neutral">Setup</span>
+            {societies.length > 1 ? (
+              <label className="society-select-label">
+                <span className="sr-only">Active society</span>
+                <select
+                  aria-label="Active society"
+                  className="society-select"
+                  onChange={handleSocietyChange}
+                  value={activeSociety?.id ?? ''}
+                >
+                  <option value="">Select society</option>
+                  {societies.map((society) => (
+                    <option key={society.id} value={society.id}>
+                      {society.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : activeSociety ? (
+              <span className="status-badge status-badge--neutral">{activeSociety.name}</span>
+            ) : (
+              <span className="status-badge status-badge--neutral">
+                {user?.platformRole === 'super_admin' ? 'Platform' : 'Setup'}
+              </span>
+            )}
           </div>
-          <div className="topbar__user" aria-label="Application preview">
+          <div className="topbar__user">
             <span className="avatar" aria-hidden="true">
-              S
+              {user?.displayName?.[0]?.toUpperCase() ?? 'U'}
             </span>
-            <span className="topbar__user-label">Preview</span>
+            <span className="topbar__user-label">{user?.displayName ?? 'Account'}</span>
+            {isAuthenticated && (
+              <button
+                className="button button--secondary logout-button"
+                onClick={handleLogout}
+                type="button"
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </header>
         <main className="page-content" id="main-content">
+          {feedback && <Alert tone="danger">{feedback}</Alert>}
           <Outlet />
         </main>
       </div>

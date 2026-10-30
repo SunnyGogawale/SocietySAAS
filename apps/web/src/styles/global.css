@@ -156,6 +156,88 @@ textarea {
   font-weight: 600;
 }
 
+.society-select {
+  max-width: 220px;
+  min-height: 36px;
+  padding: 4px 30px 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.logout-button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.profile-form {
+  display: grid;
+  max-width: 520px;
+  gap: var(--space-4);
+}
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-5);
+  background:
+    radial-gradient(ellipse at 10% 0%, rgb(37 99 235 / 8%), transparent 45%),
+    var(--color-background);
+}
+
+.auth-card {
+  display: grid;
+  width: min(440px, 100%);
+  gap: var(--space-4);
+  padding: clamp(24px, 7vw, 40px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(16 24 40 / 8%);
+}
+
+.auth-brand,
+.auth-brand .brand__name {
+  color: var(--color-navy-900);
+}
+
+.auth-card h1 {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-tight);
+}
+
+.auth-card__description {
+  margin: -var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.auth-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.auth-form__submit {
+  width: 100%;
+  margin-top: var(--space-1);
+}
+
+.auth-link {
+  width: fit-content;
+  color: var(--color-info);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
 .page-content {
   width: min(1120px, 100%);
   margin: 0 auto;
@@ -523,6 +605,21 @@ textarea {
 
   .topbar__user-label {
     display: none;
+  }
+
+  .topbar__eyebrow {
+    display: none;
+  }
+
+  .society-select {
+    max-width: 145px;
+    font-size: var(--font-size-xs);
+  }
+
+  .logout-button {
+    min-height: 34px;
+    padding: 0 9px;
+    font-size: var(--font-size-xs);
   }
 
   .page-content {
