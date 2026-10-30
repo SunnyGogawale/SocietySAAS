@@ -8,6 +8,7 @@ const societyNavigation = [
   { label: 'Activity', path: '/activity' },
   { label: 'Account', path: '/account' },
   { label: 'Society settings', path: '/settings' },
+  { label: 'Properties and residents', path: '/properties' },
 ];
 const platformNavigation = [
   { label: 'Dashboard', path: '/' },
@@ -22,7 +23,11 @@ export default function AppLayout() {
   const [feedback, setFeedback] = useState('');
   const { activeSociety, isAuthenticated, logout, selectSociety, societies, user } = useAuth();
   const isPlatformAdmin = user?.platformRole === 'super_admin';
-  const navigation = isPlatformAdmin ? platformNavigation : societyNavigation;
+  const navigation = isPlatformAdmin
+    ? platformNavigation
+    : activeSociety?.role === 'society_admin'
+      ? societyNavigation
+      : societyNavigation.filter((item) => item.path !== '/properties');
   const navigate = useNavigate();
 
   async function handleLogout() {

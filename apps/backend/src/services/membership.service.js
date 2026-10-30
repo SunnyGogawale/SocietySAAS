@@ -3,7 +3,8 @@ const { createRawToken, hashToken } = require('../utils/securityToken');
 const { toPublicUser } = require('./auth.service');
 
 function createMembershipService({ models, audit, mailer, config, clock = () => new Date() }) {
-  const { Society, SocietyMembership, Subscription, User } = models;
+  const { Ownership, ParkingAssignment, Society, SocietyMembership, Subscription, User, Vehicle } =
+    models;
 
   async function inviteMember({
     society: suppliedSociety,
@@ -183,6 +184,45 @@ function createMembershipService({ models, audit, mailer, config, clock = () => 
     membership.verifiedBy = status === 'active' ? actor._id : membership.verifiedBy;
     membership.verifiedAt = status === 'active' ? clock() : membership.verifiedAt;
     await membership.save();
+    if (membership.role === 'house_owner' && status === 'active') {
+      await Ownership.updateMany(
+        { societyId: society._id, membershipId: membership._id, status: 'invited' },
+        { $set: { status: 'active' } },
+      );
+    }
+    if (membership.role === 'house_owner' && status === 'revoked') {
+      await Ownership.updateMany(
+        {
+          societyId: society._id,
+          membershipId: membership._id,
+          status: { $in: ['invited', 'active'] },
+        },
+        { $set: { status: 'ended', endsAt: clock() } },
+      );
+      const vehicles = await Vehicle.find({
+        societyId: society._id,
+        membershipId: membership._id,
+        status: 'active',
+      })
+        .select('_id')
+        .lean();
+      const vehicleIds = vehicles.map(({ _id }) => _id);
+      await Promise.all([
+        Vehicle.updateMany({ _id: { $in: vehicleIds } }, { $set: { status: 'inactive' } }),
+        ParkingAssignment.updateMany(
+          { societyId: society._id, vehicleId: { $in: vehicleIds }, status: 'active' },
+          { $set: { status: 'ended', endsAt: clock() } },
+        ),
+      ]);
+    }
+    if (membership.role === 'house_owner' && ['active', 'revoked'].includes(status)) {
+      const ownerships = await Ownership.find({
+        societyId: society._id,
+        membershipId: membership._id,
+      }).select('flatId');
+      const flatIds = [...new Set(ownerships.map(({ flatId }) => String(flatId)))];
+      await Promise.all(flatIds.map((flatId) => refreshFlatOccupancy(society._id, flatId)));
+    }
     await audit.record({
       actorId: actor._id,
       societyId: society._id,
@@ -200,6 +240,24 @@ function createMembershipService({ models, audit, mailer, config, clock = () => 
       status: membership.status,
       revokedAt: membership.revokedAt,
     };
+  }
+
+  async function refreshFlatOccupancy(societyId, flatId) {
+    const flat = await models.Flat.findOne({ _id: flatId, societyId });
+    if (!flat) return;
+    const [activeOwners, activeOccupants] = await Promise.all([
+      Ownership.countDocuments({ societyId, flatId, status: 'active' }),
+      models.Occupancy.countDocuments({ societyId, flatId, status: 'active' }),
+    ]);
+    flat.occupancyStatus =
+      activeOccupants > 0
+        ? activeOwners > 0
+          ? 'partially_occupied'
+          : 'occupied'
+        : activeOwners > 0
+          ? 'occupied'
+          : 'vacant';
+    await flat.save();
   }
 
   async function updateMembershipRole({ societyId, actor, membershipId, role, request }) {

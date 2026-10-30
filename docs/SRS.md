@@ -48,9 +48,9 @@ The proposed MVP is the smallest coherent society-management service:
 5. Maintenance/service requests with status, assignment, comments, and history.
 6. Manually recorded charges, receipts/payments, expenses, and basic financial reporting, subject to jurisdiction/accounting review. External payment collection is not assumed to be in MVP.
 7. An attributable audit trail for security-sensitive and financial changes.
-8. Responsive web access for administrators and owners; mobile delivery strategy remains unresolved. The API MUST support future mobile clients.
+8. Responsive Web access for administrators and a React Native Mobile read-only property/profile journey for House Owners; additional mobile workflows, offline behavior, and release support remain unresolved.
 
-Feature boundaries and acceptance/dependency identifiers are in [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md). Whether payment collection, document storage, push notifications, multiple societies per person, and native mobile apps are MVP items must be decided before planning.
+Feature boundaries and acceptance/dependency identifiers are in [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md). Whether payment collection, document storage, push notifications, and additional native mobile workflows are MVP items must be decided before planning.
 
 ### 4.2 Exclusions from proposed MVP
 
@@ -69,7 +69,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the logical boundary and [MODULE_WO
 
 ### 5.2 Mobile client
 
-- The product MUST provide owner journeys usable on mobile-sized screens. Whether this means responsive web, installable web app, or native apps is unresolved.
+- The product MUST provide owner journeys usable on mobile-sized screens. The current implementation includes a React Native read-only property/profile view; native distribution, supported OS versions, and offline behavior remain unresolved.
 - Any mobile client MUST use the same backend authorization, validation, and business rules as web.
 - MUST protect locally cached data, avoid persisting credentials in insecure storage, and handle session expiry and offline state explicitly.
 - Offline writes, push notification delivery, app-store distribution, and supported OS versions are unresolved and MUST NOT be assumed.
@@ -113,7 +113,20 @@ Detailed workflow and state requirements appear in [MODULE_WORKFLOWS.md](./MODUL
 - A Society Admin MUST be able to maintain society profile, home/unit records, owner assignments, and membership status within authorized scope.
 - An owner must be verified/approved before receiving access to protected society records. Verification evidence and acceptable approvers are open decisions.
 - Ownership changes MUST preserve historical relationships and their effective period; they MUST NOT overwrite history or transfer balances implicitly.
-- Support more than one owner per home and more than one home per owner only if stakeholder policy approves; cardinality is unresolved.
+- The current relationship model supports multiple owners per home and multiple homes per owner. Whether co-owners share the same resident-facing data and how policy governs relationship cardinality remain unresolved.
+
+### 6.2.1 Property and resident management (SOC-03)
+
+- Society Admins MUST be able to create and list buildings, optional wings, floors, and flats. A flat MUST reference a building and floor; parent records MUST belong to the same authorized society. Duplicate flat numbers are rejected within the same building/wing; identical identifiers in different buildings remain permitted.
+- Flat records MUST include area, property type, and derived occupancy status. The server recalculates occupancy status from current owner and occupancy relationships rather than accepting a client-supplied status.
+- Every flat area MUST include an explicit unit (`square_foot` or `square_metre`). Whether a society must use one consistent unit, and whether/how conversions are allowed, remain unresolved under D-20; property area MUST NOT be used for financial calculations until approved.
+- A flat MAY have multiple current owners/co-owners. Owner invitations are tied to the active society and selected flat; a linked owner receives access only after the existing invitation/verification/activation policy succeeds. Existing active House Owner memberships can be linked without issuing a duplicate invitation.
+- Ownership and occupancy changes MUST be time-stamped and retained as history. Ending the last active property relationship revokes the associated membership; access MUST be denied on the next request. Ending one link MUST NOT revoke a member who retains another active ownership or occupancy.
+- Society Admins MAY record tenant and authorized-occupant details, move-in/move-out dates, lease references, owner-linked vehicles, parking slots, and parking assignments. Occupancy end dates must follow start dates. Active parking assignments MUST NOT conflict for a slot or vehicle, and a reserved slot MUST only be assigned to its designated flat.
+- Future-dated occupancy activation is unresolved; until a scheduling policy is approved, an occupancy may be recorded only on or after its move-in date.
+- Owner clients MUST expose only the current member's own property/profile projection. Tenant-scoped property and resident lists, search, pagination, sorting, imports, exports, and downloadable import error reports MUST apply the same authorization as direct reads. Sensitive CSV exports and import-error downloads are audited. Imports accept at most 500 validated JSON rows and report per-row failures; CSV file upload is not part of this phase.
+- Historical ownership, occupancy, vehicle, and parking records are ended rather than hard-deleted. Ending a relationship MUST NOT create, recalculate, or alter any maintenance invoice or other historical financial record.
+- No maintenance invoice, charge, receipt, accounting, or maintenance billing workflow is included in SOC-03.
 
 ### 6.3 Announcements and documents
 
@@ -251,27 +264,28 @@ Numerical targets in this section are proposed targets for review, not commitmen
 
 Do not silently choose defaults for these product or compliance decisions. Record an owner and approved answer before implementing the dependent feature:
 
-| ID | Decision | Affected requirements/features |
-|---|---|---|
-| D-01 | Initial launch jurisdiction(s), applicable privacy, housing, tax, and accounting obligations | FIN, privacy, retention, hosting |
-| D-02 | Product's accounting status: convenience sub-ledger vs. authoritative accounting; fiscal periods and accounting basis | FIN-01–FIN-04, reports |
-| D-03 | Currency/currencies, decimal scale, rounding policy, taxes, late fees, interest, proration, and payment allocation | FIN-01–FIN-04 |
-| D-04 | Payment collection in MVP; providers, settlement evidence, refunds, chargebacks, and reconciliation | PAY-01 |
-| D-05 | Identity method, MFA requirement, password recovery, supported identity providers, and account uniqueness rules | IAM-01–IAM-03 |
-| D-06 | Whether one person can access multiple societies and which role combinations are allowed | IAM, tenant switching |
-| D-07 | Home-to-owner cardinality, renters/occupants/delegates, owner verification evidence and approver | SOC-02, IAM-03 |
-| D-08 | Commercial/access policy: trial expiry, subscription-status effects on access, pricing/billing, tenant suspension behavior, export, retention, deletion, and restoration | PLAT-01 |
-| D-09 | Mobile delivery: responsive web/PWA/native; supported OS/devices; offline and push behavior | UX-01, NOTIF-01 |
-| D-10 | Document and attachment policy: storage, formats, limits, scanning, retention, and access | DOC-01, REQ-01 |
-| D-11 | Communication channels, consent/legal basis, templates, language, delivery guarantees | NOTIF-01 |
-| D-12 | Service-request categories, urgency, internal notes, response targets, reopen and escalation policy | REQ-01 |
-| D-13 | Approved reports, exports, formats, limits, and financial cutoff/status rules | REP-01 |
-| D-14 | Data residency, retention schedules, data-subject request handling, audit retention | SEC-04, PRIV-01 |
-| D-15 | Hosting/provider, deployment topology, database, identity provider, observability and key-management choices | Architecture |
-| D-16 | Availability/performance/load targets, RPO/RTO, backup retention, support and incident response | NFR/OPS |
-| D-17 | Supported languages, locales, time zones, browsers and assistive-technology test matrix | UX-01, accessibility |
-| D-18 | Tenant-admin count, Super Admin support access procedure, break-glass authorization and review cadence | IAM-02, AUD-01 |
-| D-19 | Success measures, pricing model, onboarding/support ownership | Product operations |
+| ID   | Decision                                                                                                                                                                 | Affected requirements/features    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| D-01 | Initial launch jurisdiction(s), applicable privacy, housing, tax, and accounting obligations                                                                             | FIN, privacy, retention, hosting  |
+| D-02 | Product's accounting status: convenience sub-ledger vs. authoritative accounting; fiscal periods and accounting basis                                                    | FIN-01–FIN-04, reports            |
+| D-03 | Currency/currencies, decimal scale, rounding policy, taxes, late fees, interest, proration, and payment allocation                                                       | FIN-01–FIN-04                     |
+| D-04 | Payment collection in MVP; providers, settlement evidence, refunds, chargebacks, and reconciliation                                                                      | PAY-01                            |
+| D-05 | Identity method, MFA requirement, password recovery, supported identity providers, and account uniqueness rules                                                          | IAM-01–IAM-03                     |
+| D-06 | Whether one person can access multiple societies and which role combinations are allowed                                                                                 | IAM, tenant switching             |
+| D-07 | Home-to-owner cardinality, renters/occupants/delegates, owner verification evidence and approver                                                                         | SOC-02, IAM-03                    |
+| D-08 | Commercial/access policy: trial expiry, subscription-status effects on access, pricing/billing, tenant suspension behavior, export, retention, deletion, and restoration | PLAT-01                           |
+| D-09 | Mobile delivery: responsive web/PWA/native; supported OS/devices; offline and push behavior                                                                              | UX-01, NOTIF-01                   |
+| D-10 | Document and attachment policy: storage, formats, limits, scanning, retention, and access                                                                                | DOC-01, REQ-01                    |
+| D-11 | Communication channels, consent/legal basis, templates, language, delivery guarantees                                                                                    | NOTIF-01                          |
+| D-12 | Service-request categories, urgency, internal notes, response targets, reopen and escalation policy                                                                      | REQ-01                            |
+| D-13 | Approved reports, exports, formats, limits, and financial cutoff/status rules                                                                                            | REP-01                            |
+| D-14 | Data residency, retention schedules, data-subject request handling, audit retention                                                                                      | SEC-04, PRIV-01                   |
+| D-15 | Hosting/provider, deployment topology, database, identity provider, observability and key-management choices                                                             | Architecture                      |
+| D-16 | Availability/performance/load targets, RPO/RTO, backup retention, support and incident response                                                                          | NFR/OPS                           |
+| D-17 | Supported languages, locales, time zones, browsers and assistive-technology test matrix                                                                                  | UX-01, accessibility              |
+| D-18 | Tenant-admin count, Super Admin support access procedure, break-glass authorization and review cadence                                                                   | IAM-02, AUD-01                    |
+| D-19 | Success measures, pricing model, onboarding/support ownership                                                                                                            | Product operations                |
+| D-20 | Property area unit policy: society-wide consistency, display convention, and conversion/rounding behavior                                                                | SOC-03, future area-based billing |
 
 ## 14. Approval and change control
 

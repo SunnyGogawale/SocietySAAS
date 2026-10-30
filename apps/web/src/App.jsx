@@ -13,13 +13,14 @@ import PlatformPlansPage from './pages/PlatformPlansPage.jsx';
 import PlatformSocietiesPage from './pages/PlatformSocietiesPage.jsx';
 import PlatformSocietyDetailPage from './pages/PlatformSocietyDetailPage.jsx';
 import PlatformSupportPage from './pages/PlatformSupportPage.jsx';
+import PropertyManagementPage from './pages/PropertyManagementPage.jsx';
 import SocietyRegistrationPage from './pages/SocietyRegistrationPage.jsx';
 import SocietySettingsPage from './pages/SocietySettingsPage.jsx';
 import ResetPasswordPage from './pages/ResetPasswordPage.jsx';
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx';
 
 function AppRoutes() {
-  const { isAuthenticated, loading, user } = useAuth();
+  const { activeSociety, isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -56,6 +57,18 @@ function AppRoutes() {
               <Route path="activity" element={<ActivityPage />} />
               <Route path="account" element={<AccountPage />} />
               <Route path="settings" element={<SocietySettingsPage />} />
+              {user?.platformRole !== 'super_admin' && (
+                <Route
+                  path="properties"
+                  element={
+                    activeSociety?.role === 'society_admin' ? (
+                      <PropertyManagementPage />
+                    ) : (
+                      <Navigate to="/" replace />
+                    )
+                  }
+                />
+              )}
             </>
           )}
           <Route path="*" element={<Navigate to="/" replace />} />

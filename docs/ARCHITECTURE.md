@@ -38,6 +38,16 @@ and notification templates are tenant-keyed documents. Charge rules are immutabl
 per-society revisions with non-decreasing effective dates. Issued-bill snapshots
 and a billing engine are not present in this phase.
 
+Property/resident APIs are mounted under `/api/v1/societies/{societyId}` and use
+the same authenticated session, server-selected society context, active membership,
+permission middleware, validators, and audit service. Property hierarchy, ownership,
+occupancy, vehicle, parking, and import-report records are society-scoped Mongoose
+models. Owner read projections resolve linked flats from current ownership/occupancy
+records; clients cannot widen that scope with supplied IDs. The Web application
+provides the Society Admin management workspace, while Mobile provides a read-only
+House Owner property/profile screen. Imports are bounded JSON batches with
+downloadable row-error CSV; no financial or invoice endpoint is included.
+
 ## 2. Logical components
 
 ### 2.1 Web and mobile clients
@@ -104,6 +114,17 @@ Follow API conventions in [SRS §8](./SRS.md#8-api-conventions). Proposed routes
 /api/v1/tenants/{tenantId}/financial-records
 ```
 
+The implemented SocietySAAS property resources use society-scoped routes:
+
+```text
+/api/v1/societies/{societyId}/properties
+/api/v1/societies/{societyId}/buildings
+/api/v1/societies/{societyId}/flats/{flatId}/owners
+/api/v1/societies/{societyId}/residents
+/api/v1/societies/{societyId}/parking-slots
+/api/v1/societies/{societyId}/my-property
+```
+
 The server must confirm each `{tenantId}` is in the caller's authorized scope. Do not put secrets or sensitive identity data in URLs. Use request IDs and idempotency keys for retry-prone commands. Integrations use least-privilege credentials and validated, signed callbacks as appropriate.
 
 ## 5. Financial consistency and audit
@@ -124,18 +145,18 @@ The server must confirm each `{tenantId}` is in the caller's authorized scope. D
 
 ## 7. Architectural decisions still open
 
-| Decision | Options/examples (not selected) | Required before |
-|---|---|---|
-| Hosting, regions, residency | Managed cloud/provider/region options | Production tenant data |
-| Deployment style | Modular monolith or independently deployed services | Implementation planning |
-| Database and tenant isolation | Relational/other; shared schema, schema, or database per tenant | Data implementation |
-| Identity provider and auth protocol | Managed identity/OIDC or first-party auth | IAM implementation |
-| Client delivery | Responsive web, PWA, native iOS/Android, combination | Client roadmap |
-| File storage and scanning | Managed object storage and scanning provider | Attachments/documents |
-| Email/SMS/push | Provider, consent, locale, retry policy | Notifications |
-| Payment integration | Provider, callbacks, reconciliation/settlement | Online collections |
-| Queue/cache/search/analytics | Only if product and scale justify | Relevant feature |
-| RPO/RTO, SLO, support model | Business-approved values and ownership | Production release |
+| Decision                            | Options/examples (not selected)                                 | Required before         |
+| ----------------------------------- | --------------------------------------------------------------- | ----------------------- |
+| Hosting, regions, residency         | Managed cloud/provider/region options                           | Production tenant data  |
+| Deployment style                    | Modular monolith or independently deployed services             | Implementation planning |
+| Database and tenant isolation       | Relational/other; shared schema, schema, or database per tenant | Data implementation     |
+| Identity provider and auth protocol | Managed identity/OIDC or first-party auth                       | IAM implementation      |
+| Client delivery                     | Responsive web, PWA, native iOS/Android, combination            | Client roadmap          |
+| File storage and scanning           | Managed object storage and scanning provider                    | Attachments/documents   |
+| Email/SMS/push                      | Provider, consent, locale, retry policy                         | Notifications           |
+| Payment integration                 | Provider, callbacks, reconciliation/settlement                  | Online collections      |
+| Queue/cache/search/analytics        | Only if product and scale justify                               | Relevant feature        |
+| RPO/RTO, SLO, support model         | Business-approved values and ownership                          | Production release      |
 
 ## 8. Architecture acceptance checks
 

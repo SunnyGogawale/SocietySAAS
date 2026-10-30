@@ -64,6 +64,18 @@ Ticket management does not grant platform operators implicit access to the tenan
 
 **Current implementation boundary:** The repository has no issued-bill model or billing engine, so historical bill preservation is guaranteed by immutable charge-rule revisions and the requirement for future bills to snapshot the applicable revision. No existing bill recalculation path exists.
 
+## 4.2 Property and resident management (SOC-03)
+
+1. Society Admin creates a building, optional wing, floor, and flat. Each selected parent is resolved within the active society; duplicate flat identifiers in the same building/wing fail without replacing existing data.
+2. Admin invites an owner for a flat or links an already active House Owner membership. Invited ownership becomes active only with membership activation. Multiple current co-owners are supported by separate relationship records.
+3. Admin records tenant/authorized-occupant details and move-in/move-out periods. Invalid dates and cross-society flat/member IDs are rejected.
+4. Admin records a vehicle against a current owner or occupancy, creates parking slots, then assigns an eligible vehicle to a flat/slot. A unique active assignment per slot and per vehicle prevents collisions; designated-flat restrictions are enforced.
+5. Ending an ownership or occupancy record preserves it as history and updates flat occupancy. Access is revoked only when the member has no other active ownership or occupancy. Historical financial records are not modified.
+6. Authorized admins search/filter/sort/paginate property and resident lists and export capped, audited CSV. Bulk import processes up to 500 JSON rows independently and provides a tenant-scoped CSV error report. A failed row does not discard successful rows.
+7. House Owners see their own profile and linked properties in Mobile; their read endpoints, including building structure and parking, are scoped to active linked flats.
+
+**Current implementation boundary:** Property imports use JSON records, not file uploads. No invoice or billing service is present; property/resident updates cannot create or recalculate maintenance invoices.
+
 ## 5. Announcement (COM-01)
 
 1. Society Admin drafts content, audience, and optional publication window.

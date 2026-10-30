@@ -983,3 +983,309 @@ test('email verification is required when configured and pending admin membershi
     1,
   );
 });
+
+test('property management enforces tenant scope, prevents duplicate flats and parking conflicts, and revokes ended-owner access', async () => {
+  const admin = await createUser({ email: 'property-admin@example.test' });
+  const owner = await createUser({ email: 'property-owner@example.test' });
+  const otherOwner = await createUser({ email: 'other-property-owner@example.test' });
+  const society = await createSociety('property-society');
+  const otherSociety = await createSociety('other-property-society');
+  await addMembership(admin, society);
+  const ownerMembership = await addMembership(owner, society, 'house_owner');
+  const otherMembership = await addMembership(otherOwner, society, 'house_owner');
+  await addMembership(admin, otherSociety);
+
+  const adminLogin = await login(admin.email);
+  const adminHeaders = bearer(adminLogin.body.data.sessionToken);
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  const ownerLogin = await login(owner.email);
+  const ownerHeaders = bearer(ownerLogin.body.data.sessionToken);
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(ownerHeaders)
+    .send({})
+    .expect(200);
+
+  const building = await request(app)
+    .post(`/api/v1/societies/${society._id}/buildings`)
+    .set(adminHeaders)
+    .send({ name: 'North Tower', code: 'N' })
+    .expect(201);
+  const buildingId = building.body.data.building._id;
+  const wing = await request(app)
+    .post(`/api/v1/societies/${society._id}/wings`)
+    .set(adminHeaders)
+    .send({ buildingId, name: 'East Wing', code: 'E' })
+    .expect(201);
+  const floor = await request(app)
+    .post(`/api/v1/societies/${society._id}/floors`)
+    .set(adminHeaders)
+    .send({ buildingId, wingId: wing.body.data.wing._id, floorNumber: 1, label: 'First floor' })
+    .expect(201);
+
+  const createFlat = (flatNumber) =>
+    request(app).post(`/api/v1/societies/${society._id}/flats`).set(adminHeaders).send({
+      buildingId,
+      wingId: wing.body.data.wing._id,
+      floorId: floor.body.data.floor._id,
+      flatNumber,
+      area: 900,
+      areaUnit: 'square_foot',
+      propertyType: 'apartment',
+    });
+  const flatResponse = await createFlat('1A').expect(201);
+  const flatId = flatResponse.body.data.flat._id;
+  await createFlat('1A').expect(409);
+
+  const secondFlat = await createFlat('1B').expect(201);
+  await request(app)
+    .get(`/api/v1/societies/${otherSociety._id}/properties`)
+    .set(adminHeaders)
+    .expect(404);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/flats/${secondFlat.body.data.flat._id}/owners/link`)
+    .set(adminHeaders)
+    .send({ membershipId: String(otherMembership._id), ownershipType: 'owner' })
+    .expect(201);
+
+  const ownerLink = await request(app)
+    .post(`/api/v1/societies/${society._id}/flats/${flatId}/owners/invite`)
+    .set(adminHeaders)
+    .send({ email: owner.email, ownershipType: 'owner' })
+    .expect(201);
+  assert.equal(ownerLink.body.data.ownership.status, 'active');
+  const residents = await request(app)
+    .get(`/api/v1/societies/${society._id}/residents?status=active&residentType=owner`)
+    .set(adminHeaders)
+    .expect(200);
+  assert.equal(residents.body.data.residents.length, 2);
+  assert.equal(residents.body.data.pagination.total, 2);
+  const ownerSearch = await request(app)
+    .get(`/api/v1/societies/${society._id}/residents?q=other-`)
+    .set(adminHeaders)
+    .expect(200);
+  assert.equal(ownerSearch.body.data.residents.length, 1);
+  assert.equal(ownerSearch.body.data.residents[0].email, otherOwner.email);
+  const invitedOwner = await request(app)
+    .post(`/api/v1/societies/${society._id}/flats/${flatId}/owners/invite`)
+    .set(adminHeaders)
+    .send({ email: 'invited-property-owner@example.test', ownershipType: 'co_owner' })
+    .expect(201);
+  assert.equal(invitedOwner.body.data.ownership.status, 'invited');
+  const acceptedOwner = await request(app)
+    .post('/api/v1/auth/invitations/accept')
+    .send({
+      token: delivery.invitations.at(-1).token,
+      displayName: 'Invited Property Owner',
+      password: 'a very secure password',
+    })
+    .expect(200);
+  assert.equal(acceptedOwner.body.data.membershipStatus, 'pending_verification');
+  await request(app)
+    .patch(
+      `/api/v1/societies/${society._id}/memberships/${invitedOwner.body.data.invitation.id}/status`,
+    )
+    .set(adminHeaders)
+    .send({ status: 'active' })
+    .expect(200);
+  assert.equal(
+    await models.Ownership.countDocuments({
+      _id: invitedOwner.body.data.ownership.id,
+      status: 'active',
+    }),
+    1,
+  );
+  const ownerProperties = await request(app)
+    .get(`/api/v1/societies/${society._id}/properties`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.deepEqual(
+    ownerProperties.body.data.properties.map(({ id }) => id),
+    [flatId],
+  );
+  const ownerStructure = await request(app)
+    .get(`/api/v1/societies/${society._id}/properties/structure`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(ownerStructure.body.data.buildings.length, 1);
+  await request(app)
+    .get(`/api/v1/societies/${society._id}/residents`)
+    .set(ownerHeaders)
+    .expect(403);
+
+  const vehicleResponse = await request(app)
+    .post(`/api/v1/societies/${society._id}/flats/${flatId}/vehicles`)
+    .set(adminHeaders)
+    .send({
+      membershipId: String(ownerMembership._id),
+      registrationNumber: 'MH01AB1234',
+      vehicleType: 'car',
+    })
+    .expect(201);
+  const slot = await request(app)
+    .post(`/api/v1/societies/${society._id}/parking-slots`)
+    .set(adminHeaders)
+    .send({ buildingId, flatId: null, slotNumber: 'P-1' })
+    .expect(201);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/parking-slots/${slot.body.data.parkingSlot._id}/assign`)
+    .set(adminHeaders)
+    .send({ flatId, vehicleId: vehicleResponse.body.data.vehicle._id })
+    .expect(201);
+  const secondSlot = await request(app)
+    .post(`/api/v1/societies/${society._id}/parking-slots`)
+    .set(adminHeaders)
+    .send({ buildingId, slotNumber: 'P-2' })
+    .expect(201);
+  await request(app)
+    .post(
+      `/api/v1/societies/${society._id}/parking-slots/${secondSlot.body.data.parkingSlot._id}/assign`,
+    )
+    .set(adminHeaders)
+    .send({ flatId, vehicleId: vehicleResponse.body.data.vehicle._id })
+    .expect(409);
+
+  const occupancy = await request(app)
+    .post(`/api/v1/societies/${society._id}/flats/${secondFlat.body.data.flat._id}/occupancies`)
+    .set(adminHeaders)
+    .send({
+      residentType: 'tenant',
+      name: 'Tenant Resident',
+      startsAt: new Date(Date.now() - 60_000).toISOString(),
+    })
+    .expect(201);
+  const tenantVehicle = await request(app)
+    .post(`/api/v1/societies/${society._id}/flats/${secondFlat.body.data.flat._id}/vehicles`)
+    .set(adminHeaders)
+    .send({
+      occupancyId: String(occupancy.body.data.occupancy._id),
+      registrationNumber: 'MH01XY9876',
+      vehicleType: 'motorcycle',
+    })
+    .expect(201);
+  const tenantSlot = await request(app)
+    .post(`/api/v1/societies/${society._id}/parking-slots`)
+    .set(adminHeaders)
+    .send({ buildingId, slotNumber: 'P-3' })
+    .expect(201);
+  const tenantAssignment = await request(app)
+    .post(
+      `/api/v1/societies/${society._id}/parking-slots/${tenantSlot.body.data.parkingSlot._id}/assign`,
+    )
+    .set(adminHeaders)
+    .send({
+      flatId: secondFlat.body.data.flat._id,
+      vehicleId: tenantVehicle.body.data.vehicle._id,
+    })
+    .expect(201);
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/occupancies/${occupancy.body.data.occupancy._id}/end`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  assert.equal(
+    (await models.Occupancy.findById(occupancy.body.data.occupancy._id)).status,
+    'ended',
+  );
+  assert.equal(
+    (await models.Vehicle.findById(tenantVehicle.body.data.vehicle._id)).status,
+    'inactive',
+  );
+  assert.equal(
+    (await models.ParkingAssignment.findById(tenantAssignment.body.data.assignment._id)).status,
+    'ended',
+  );
+
+  const myProperty = await request(app)
+    .get(`/api/v1/societies/${society._id}/my-property`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(myProperty.body.data.properties.length, 1);
+  assert.equal(myProperty.body.data.properties[0].flat.flatNumber, '1A');
+
+  const ownershipId = ownerLink.body.data.ownership.id;
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/ownerships/${ownershipId}/end`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  assert.equal(
+    await models.Ownership.countDocuments({
+      _id: ownershipId,
+      societyId: society._id,
+      status: 'ended',
+    }),
+    1,
+  );
+  assert.equal((await models.SocietyMembership.findById(ownerMembership._id)).status, 'revoked');
+  assert.equal(
+    (await models.Vehicle.findById(vehicleResponse.body.data.vehicle._id)).status,
+    'inactive',
+  );
+  assert.equal(
+    await models.ParkingAssignment.countDocuments({
+      societyId: society._id,
+      vehicleId: vehicleResponse.body.data.vehicle._id,
+      status: 'ended',
+    }),
+    1,
+  );
+  await request(app)
+    .get(`/api/v1/societies/${society._id}/my-property`)
+    .set(ownerHeaders)
+    .expect(403);
+});
+
+test('property imports retain row errors in tenant-scoped downloadable reports', async () => {
+  const admin = await createUser({ email: 'property-import-admin@example.test' });
+  const society = await createSociety('property-import-society');
+  await addMembership(admin, society);
+  const signedIn = await login(admin.email);
+  const headers = bearer(signedIn.body.data.sessionToken);
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(headers)
+    .send({})
+    .expect(200);
+
+  const imported = await request(app)
+    .post(`/api/v1/societies/${society._id}/property-imports`)
+    .set(headers)
+    .send({
+      type: 'properties',
+      records: [
+        {
+          buildingCode: 'A',
+          buildingName: 'Alpha',
+          floorNumber: 1,
+          flatNumber: '101',
+          area: '800',
+          areaUnit: 'square_metre',
+          propertyType: 'apartment',
+        },
+        { buildingCode: '', floorNumber: 'invalid' },
+      ],
+    })
+    .expect(201);
+  assert.equal(imported.body.data.createdCount, 1);
+  assert.equal(imported.body.data.errorCount, 1);
+  const report = await request(app).get(imported.body.data.errorReportUrl).set(headers).expect(200);
+  assert.match(report.headers['content-type'], /text\/csv/);
+  assert.match(report.text, /buildingCode/);
+  assert.equal(
+    await models.AuditLog.countDocuments({
+      action: 'property.import.errors.export',
+      societyId: society._id,
+    }),
+    1,
+  );
+  const otherSociety = await createSociety('different-property-import-society');
+  await request(app)
+    .get(`/api/v1/societies/${otherSociety._id}/property-imports/${imported.body.data.id}/errors`)
+    .set(headers)
+    .expect(404);
+});

@@ -1,9 +1,10 @@
 # SocietySAAS
 
 JavaScript monorepo for the Society Management SaaS, with separate web, mobile, and
-backend applications. The platform currently includes authentication and the
-Super Admin tenant/subscription/support console. Society accounting and maintenance
-billing workflows have not been implemented.
+backend applications. The platform currently includes authentication, the
+Super Admin tenant/subscription/support console, Society Admin configuration,
+and property and resident management. Society accounting and maintenance billing
+workflows have not been implemented.
 
 The product specification is in [`docs/`](./docs/). Decisions that affect financial
 rules, payment processing, retention, and other not-yet-built modules remain open;
@@ -11,12 +12,12 @@ this implementation does not assume those policies.
 
 ## Applications
 
-| Workspace                    | Stack                          | Purpose                                                              |
-| ---------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and responsive society account shell             |
-| `@societysaas/mobile`        | React Native, Expo, JavaScript | Native-capable mobile navigation and screen shell                    |
-| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, and health endpoints |
-| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                        |
+| Workspace                    | Stack                          | Purpose                                                             |
+| ---------------------------- | ------------------------------ | ------------------------------------------------------------------- |
+| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and Society Admin property/settings workspaces  |
+| `@societysaas/mobile`        | React Native, Expo, JavaScript | House Owner property/profile and society settings views             |
+| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, and property models |
+| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                       |
 
 ## Prerequisites
 
@@ -76,12 +77,21 @@ configured; no reset email is sent in that case.
   Admins can update profile, locale, operational rules, charge-rule revisions,
   approval policies, and notification templates. House Owners receive a restricted
   read-only projection.
+- Society Admin APIs under `/api/v1/societies/:societyId` manage buildings, wings,
+  floors, flats, owner invitations/links, occupancy history, vehicles, parking,
+  resident/property lists, imports, and authorized CSV exports. House Owner property
+  reads are scoped to active linked flats.
 
 Maintenance charge-rule updates append immutable, dated revisions. They do not
 recalculate previously issued bills; the repository does not yet include issued
 bills or a billing engine. Logo configuration currently accepts an HTTPS asset URL;
 file upload/storage, notification delivery, and the configured operational
 workflows remain out of scope.
+
+Property imports accept validated JSON batches (up to 500 records) with a
+tenant-scoped CSV error report; CSV upload is not implemented. Property and
+resident changes preserve relationship history and do not create or alter
+maintenance invoices.
 
 ## Authentication setup
 
@@ -111,7 +121,7 @@ body, or query parameter cannot change authorization scope. Revoked memberships
 stop authorizing the next request.
 
 No sample account, tenant data, or seeded database is included. Society accounting,
-maintenance billing, and payment processing endpoints are not implemented.
+maintenance invoices/billing, and payment processing endpoints are not implemented.
 
 ## Scripts
 

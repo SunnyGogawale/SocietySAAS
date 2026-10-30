@@ -39,34 +39,64 @@ erDiagram
   TENANT ||--o{ CHARGE_RULES : versions
   TENANT ||--|| APPROVAL_POLICIES : configures
   TENANT ||--|| NOTIFICATION_TEMPLATES : configures
+  TENANT ||--o{ BUILDING : contains
+  BUILDING ||--o{ WING : contains
+  BUILDING ||--o{ FLOOR : contains
+  WING o|--o{ FLOOR : organizes
+  BUILDING ||--o{ HOME : contains
+  WING o|--o{ HOME : organizes
+  FLOOR ||--o{ HOME : contains
+  MEMBERSHIP ||--o{ OWNERSHIP : holds
+  HOME ||--o{ OWNERSHIP : owned_by
+  HOME ||--o{ OCCUPANCY : occupied_by
+  MEMBERSHIP o|--o{ OCCUPANCY : may_access
+  HOME ||--o{ VEHICLE : registers
+  MEMBERSHIP o|--o{ VEHICLE : registers
+  OCCUPANCY o|--o{ VEHICLE : registers
+  BUILDING ||--o{ PARKING_SLOT : contains
+  HOME o|--o{ PARKING_SLOT : reserves
+  PARKING_SLOT ||--o{ PARKING_ASSIGNMENT : receives
+  HOME ||--o{ PARKING_ASSIGNMENT : uses
+  VEHICLE ||--o{ PARKING_ASSIGNMENT : assigned
+  TENANT ||--o{ PROPERTY_IMPORT_REPORT : records
 ```
 
 The diagram expresses conceptual associations only. For example, `o|` is intentional where a platform-level action may not belong to one tenant. Physical referential constraints must reject cross-tenant relationships.
 
 ## 2. Entity intent and key invariants
 
-| Entity | Purpose | Important invariants |
-|---|---|---|
-| `Tenant` | Society/community boundary and lifecycle | Stable opaque ID; status; display name is not key; suspension does not delete |
-| `User` | Global authenticated principal | Stable principal ID independent of mutable email/phone; credentials are not exposed |
-| `TenantAdminGrant` | Platform-issued tenant-admin assignment | Tenant, user, grantor, scope/status, effective dates; auditable and revocable |
-| `Membership` | User's tenant role/status and verification | Tenant + user relationship; role and lifecycle; uniqueness/multi-role rule unresolved |
-| `Home` | Tenant-owned dwelling/unit | Tenant-scoped unique label policy; status; never identify by address alone |
-| `HomeMembership` | Time-bounded relationship between membership and home | Relationship type, verification, effective interval; preserve history |
-| `Invitation` | Time-limited onboarding capability | Tenant, intended role/recipient, token digest only, expiry, single-use/revocation |
-| `Announcement` | Tenant notice with audience and publication lifecycle | Tenant, author, state, audience, published time; revision policy unresolved |
-| `ServiceRequest` | Owner-submitted operational issue | Tenant, submitter, optional home, status, assignment/history; internal-note access controlled |
-| `FinancialRecord` | Charge, receipt, expense, refund, reversal, adjustment | Tenant, type, amount, currency, status, dates, source/correction link; immutable after posting |
-| `FinancialAllocation` | Links payment/credit to charge or other approved target | Same tenant and compatible currency; amount within permitted bounds |
-| `AuditEvent` | Append-only accountability record | Actor, tenant context, action, target, timestamp, outcome, minimal payload |
-| `Notification` | Delivery/read state distinct from business data | Recipient, tenant, event reference, channel/status; no authority to alter source state |
-| `SubscriptionPlan` | Platform-defined plan, limits and optional price metadata | Unique plan code; archived plans cannot be newly assigned; payment processing is separate |
-| `Subscription` | Tenant's current plan, status, explicit trial period and limit snapshot | One current subscription per tenant; configured by platform actor; no billing ledger |
-| `SupportTicket` | Tenant-scoped support request tracked by the platform | Creator and tenant are server-bound; platform ticket access does not imply access to tenant business data |
-| `SocietySettings` | Tenant-scoped identity, locale, numbering, branding and operational rules | One settings document per tenant; backend validation; residents receive a restricted read projection |
-| `ChargeRules` | Versioned future maintenance charge, due-date, late-fee and grace-period rules | Unique tenant/version; area-based charges require an explicit square-foot or square-metre unit; immutable after creation; effective dates cannot be backdated; never rewrites an issued bill |
-| `ApprovalPolicies` | Configurable operation approval requirements | One tenant document; unique operation; configuration only, workflows remain separate |
-| `NotificationTemplates` | Tenant's configured email/SMS/push message templates | One tenant document; unique template keys; delivery/rendering is separate |
+| Entity                  | Purpose                                                                            | Important invariants                                                                                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Tenant`                | Society/community boundary and lifecycle                                           | Stable opaque ID; status; display name is not key; suspension does not delete                                                                                                                |
+| `User`                  | Global authenticated principal                                                     | Stable principal ID independent of mutable email/phone; credentials are not exposed                                                                                                          |
+| `TenantAdminGrant`      | Platform-issued tenant-admin assignment                                            | Tenant, user, grantor, scope/status, effective dates; auditable and revocable                                                                                                                |
+| `Membership`            | User's tenant role/status and verification                                         | Tenant + user relationship; role and lifecycle; uniqueness/multi-role rule unresolved                                                                                                        |
+| `Home`                  | Tenant-owned dwelling/unit                                                         | Tenant-scoped unique label policy; status; never identify by address alone                                                                                                                   |
+| `HomeMembership`        | Time-bounded relationship between membership and home                              | Relationship type, verification, effective interval; preserve history                                                                                                                        |
+| `Invitation`            | Time-limited onboarding capability                                                 | Tenant, intended role/recipient, token digest only, expiry, single-use/revocation                                                                                                            |
+| `Announcement`          | Tenant notice with audience and publication lifecycle                              | Tenant, author, state, audience, published time; revision policy unresolved                                                                                                                  |
+| `ServiceRequest`        | Owner-submitted operational issue                                                  | Tenant, submitter, optional home, status, assignment/history; internal-note access controlled                                                                                                |
+| `FinancialRecord`       | Charge, receipt, expense, refund, reversal, adjustment                             | Tenant, type, amount, currency, status, dates, source/correction link; immutable after posting                                                                                               |
+| `FinancialAllocation`   | Links payment/credit to charge or other approved target                            | Same tenant and compatible currency; amount within permitted bounds                                                                                                                          |
+| `AuditEvent`            | Append-only accountability record                                                  | Actor, tenant context, action, target, timestamp, outcome, minimal payload                                                                                                                   |
+| `Notification`          | Delivery/read state distinct from business data                                    | Recipient, tenant, event reference, channel/status; no authority to alter source state                                                                                                       |
+| `SubscriptionPlan`      | Platform-defined plan, limits and optional price metadata                          | Unique plan code; archived plans cannot be newly assigned; payment processing is separate                                                                                                    |
+| `Subscription`          | Tenant's current plan, status, explicit trial period and limit snapshot            | One current subscription per tenant; configured by platform actor; no billing ledger                                                                                                         |
+| `SupportTicket`         | Tenant-scoped support request tracked by the platform                              | Creator and tenant are server-bound; platform ticket access does not imply access to tenant business data                                                                                    |
+| `SocietySettings`       | Tenant-scoped identity, locale, numbering, branding and operational rules          | One settings document per tenant; backend validation; residents receive a restricted read projection                                                                                         |
+| `ChargeRules`           | Versioned future maintenance charge, due-date, late-fee and grace-period rules     | Unique tenant/version; area-based charges require an explicit square-foot or square-metre unit; immutable after creation; effective dates cannot be backdated; never rewrites an issued bill |
+| `ApprovalPolicies`      | Configurable operation approval requirements                                       | One tenant document; unique operation; configuration only, workflows remain separate                                                                                                         |
+| `NotificationTemplates` | Tenant's configured email/SMS/push message templates                               | One tenant document; unique template keys; delivery/rendering is separate                                                                                                                    |
+| `Building`              | Tenant-scoped property building                                                    | Unique code per society; never referenced across tenants                                                                                                                                     |
+| `Wing`                  | Optional subdivision of a building                                                 | Building and society IDs must agree; unique code within its building                                                                                                                         |
+| `Floor`                 | Numbered floor within a building and optional wing                                 | Parent hierarchy must be consistent; unique floor number within its building/wing                                                                                                            |
+| `Flat`                  | A property unit on a floor                                                         | Building/wing/floor must share tenant and hierarchy; flat number is unique within building/wing; occupancy status is derived; numeric area carries explicit square-foot or square-metre unit |
+| `Ownership`             | Time-bounded owner/co-owner relationship between a flat and House Owner membership | Tenant-scoped; current invited/active link is unique for a membership/flat pair; ended records remain historical                                                                             |
+| `Occupancy`             | Time-bounded tenant/authorized-occupant details for a flat                         | Tenant and flat are validated together; move-out follows move-in; history is retained                                                                                                        |
+| `Vehicle`               | Vehicle registered against a flat and owner membership or occupancy                | Active registration unique within society; resident relationship must be valid in the same flat and tenant                                                                                   |
+| `ParkingSlot`           | Building parking resource, optionally reserved to a flat                           | Slot number unique within society/building; a reservation must belong to that building                                                                                                       |
+| `ParkingAssignment`     | Effective assignment of a vehicle and flat to a parking slot                       | At most one active assignment per slot and per vehicle; all referenced records belong to the same society                                                                                    |
+| `PropertyImportReport`  | Import summary and row-level validation errors                                     | Tenant and initiating actor are recorded; error download is tenant-authorized and does not expose unrelated rows                                                                             |
 
 `ChargeRules` has no relationship to an issued bill in this phase because there is no billing engine or bill entity. A future billing implementation must capture the chosen rule revision and calculated amounts as an immutable bill snapshot rather than resolving bills against the latest settings.
 

@@ -1,8 +1,16 @@
 module.exports = {
   AuditLog: require('./AuditLog'),
   ApprovalPolicies: require('./ApprovalPolicies'),
+  Building: require('./Building'),
   ChargeRules: require('./ChargeRules'),
+  Flat: require('./Flat'),
+  Floor: require('./Floor'),
   NotificationTemplates: require('./NotificationTemplates'),
+  Occupancy: require('./Occupancy'),
+  Ownership: require('./Ownership'),
+  ParkingAssignment: require('./ParkingAssignment'),
+  ParkingSlot: require('./ParkingSlot'),
+  PropertyImportReport: require('./PropertyImportReport'),
   Session: require('./Session'),
   Society: require('./Society'),
   SocietyMembership: require('./SocietyMembership'),
@@ -11,4 +19,6 @@ module.exports = {
   SubscriptionPlan: require('./SubscriptionPlan'),
   SupportTicket: require('./SupportTicket'),
   User: require('./User'),
+  Vehicle: require('./Vehicle'),
+  Wing: require('./Wing'),
 };

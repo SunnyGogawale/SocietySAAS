@@ -226,4 +226,73 @@ describe('application shell', () => {
     expect(await screen.findByLabelText('Society name')).toHaveValue('North Gardens');
     expect(screen.getByLabelText('Billing frequency')).toBeInTheDocument();
   });
+
+  it('loads the Society Admin property workspace with the tenant property data', async () => {
+    const societyId = '507f1f77bcf86cd799439011';
+    const fetchMock = vi.fn().mockImplementation(async (url) => {
+      const path = String(url);
+      let data = {};
+      if (path.includes('/auth/me')) {
+        data = {
+          user: {
+            id: 'society-admin',
+            email: 'admin@example.test',
+            displayName: 'Society Admin',
+            platformRole: 'user',
+          },
+          societies: [{ id: societyId, name: 'North Gardens', role: 'society_admin' }],
+          activeSociety: { id: societyId, name: 'North Gardens', role: 'society_admin' },
+          csrfToken: 'csrf-token',
+        };
+      } else if (path.includes('/properties/structure')) {
+        data = { buildings: [], wings: [], floors: [] };
+      } else if (path.includes('/properties?')) {
+        data = {
+          properties: [
+            {
+              id: '507f1f77bcf86cd799439012',
+              flatNumber: '101',
+              area: 900,
+              areaUnit: 'square_foot',
+              propertyType: 'apartment',
+              occupancyStatus: 'vacant',
+              building: { name: 'North Tower' },
+              wing: null,
+              owners: [],
+              parkingSlots: [],
+            },
+          ],
+          pagination: { page: 1, limit: 20, total: 1, pageCount: 1 },
+        };
+      } else if (path.includes('/residents')) {
+        data = { residents: [], pagination: { page: 1, limit: 20, total: 0, pageCount: 0 } };
+      } else if (path.includes('/parking-slots')) {
+        data = { parkingSlots: [] };
+      } else if (path.includes('/vehicles')) {
+        data = { vehicles: [], pagination: { page: 1, limit: 100, total: 0, pageCount: 0 } };
+      }
+      return new Response(JSON.stringify({ success: true, data, requestId: 'property' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('heading', { name: 'Overview' });
+    fireEvent.click(screen.getByRole('link', { name: 'Properties and residents' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Properties and residents' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('101')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export properties' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/societies/${societyId}/properties`),
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
 });
