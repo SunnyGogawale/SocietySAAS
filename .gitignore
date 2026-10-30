@@ -1,0 +1,14 @@
+node_modules/
+**/node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.expo/
+web-build/
+.DS_Store
+*.log
+.npm/
+.eslintcache
+.prettiercache

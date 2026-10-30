@@ -1,0 +1,113 @@
+# Module Workflows and State Requirements
+
+**Status:** Draft for review. Feature IDs and testable acceptance criteria are indexed in [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md).
+
+## 1. Shared workflow rules
+
+- Backend validation and authorization are authoritative for every transition.
+- Each mutation has an actor, tenant context, timestamp, request/correlation ID, and auditable outcome where required.
+- A retry must not duplicate a state-changing or financial effect. Conflicts return a documented conflict response rather than silently overwriting newer state.
+- Tenant suspension blocks ordinary tenant work; it does not erase existing records.
+- States below are proposed minimum states. Naming, timing, and policy-specific transitions need stakeholder approval.
+
+## 2. Tenant onboarding and lifecycle (PLAT-01)
+
+1. Super Admin creates a tenant with a unique internal ID and minimal profile.
+2. Platform assigns at least one Society Admin using an expiring/revocable invitation.
+3. Society Admin accepts, authenticates, and completes required society setup.
+4. Admin creates homes and invites owners; owner access remains pending until approved verification.
+5. Super Admin may suspend/reactivate tenant under an auditable action.
+6. Tenant retirement/export/deletion is blocked until retention and offboarding policies are approved.
+
+**Proposed tenant states:** `provisioning → active ↔ suspended → retired`. No hard-delete transition in MVP.
+
+## 3. Identity, invitation, and membership (IAM-01/02/03)
+
+1. User authenticates through the approved identity mechanism.
+2. An authorized issuer creates an invitation bound to a tenant, intended role, expiration, and optional intended recipient.
+3. Recipient accepts once, proves control of the approved identity, and establishes the membership.
+4. Society Admin verifies the owner/home relationship using approved evidence and records decision/actor/time.
+5. Membership becomes active only after required verification; rejection/revocation is attributable.
+6. On role/membership revocation, further requests are denied; historical records and authorship remain.
+
+**Proposed membership states:** `invited → pending_verification → active → suspended/revoked`; rejected/expired invitations are terminal. Exact account deactivation and reinvitation behavior is unresolved.
+
+## 4. Society profile, homes, and ownership history (SOC-01/02)
+
+1. Authorized Society Admin updates society profile/settings within allowed fields.
+2. Admin creates a home/unit with a stable tenant-scoped identifier and human-readable label.
+3. Admin links one or more verified owner memberships with effective start/end dates after cardinality policy is approved.
+4. Transfer closes prior relationship and creates a new relationship; it never replaces history.
+5. Historical financial/request attribution stays linked to the relevant home and actor at event time.
+
+**Open policy:** whether owners, co-owners, renters, occupants, and delegates exist as separate relationship types; whether a home can have overlapping ownership periods.
+
+## 5. Announcement (COM-01)
+
+1. Society Admin drafts content, audience, and optional publication window.
+2. Server checks tenant scope and content rules; draft is not visible to owners.
+3. Authorized admin publishes; publication event records actor/time and audience.
+4. Eligible owners read the notice; content is not visible to another tenant or ineligible audience.
+5. Admin edits/unpublishes under an auditable action. Whether edits notify readers or preserve immutable revisions needs decision.
+
+**Proposed states:** `draft → published → unpublished/archived`; schedule support is optional and unresolved.
+
+## 6. Service request (REQ-01)
+
+1. Verified owner submits category, description, relevant home, and optional approved attachment.
+2. Server validates home relationship, tenant, required fields and attachment policy; creates `open`.
+3. Society Admin triages and optionally assigns an authorized handler.
+4. Admin posts a public update or internal note; visibility is enforced on every read.
+5. Admin transitions request through `in_progress` and `resolved`; owner may acknowledge or request reopen only if policy permits.
+6. Terminal/archived status retains history and cannot be changed by an unauthorized actor.
+
+**Proposed states:** `open → in_progress → resolved → closed`; optional `reopened` transition requires policy. Define whether House Owner may close/reopen and which roles can see internal notes before implementation.
+
+## 7. Charges, receipts, and allocation (FIN-01/02)
+
+1. Authorized financial operator creates a draft charge with tenant, home/account, amount, currency, due date, and description/period.
+2. Server validates currency scale, policy, and target relationship. Draft does not affect posted balance.
+3. Authorized operator posts charge; posting and audit event are atomic and idempotent.
+4. A receipt is recorded manually or by a separately approved integration. It is not marked settled solely from client confirmation.
+5. Receipt is allocated to eligible posted charges under the approved allocation policy; unapplied amount is separately represented if allowed.
+6. Corrections use reversal/adjustment entries linked to original; no destructive edit of a posted record.
+7. Owner sees permitted posted records and an as-of balance computed under the approved rules.
+
+**Proposed financial record states:** `draft → posted → reversed` (reversal creates a linked correcting record, not deletion). The treatment of partial payment, credit, late fees, and allocation order is unresolved.
+
+## 8. Expenses and reports (FIN-03/04, REP-01)
+
+1. Authorized operator enters expense, date, payee/category, amount/currency, evidence reference if enabled.
+2. Draft expense requires review/posting according to approved policy.
+3. Reversal/correction links to original and records reason/actor.
+4. Report selects tenant, period/as-of time, currency, and filters; server enforces permission and includes defined statuses only.
+5. Report reconciles to ledger-derived totals and labels scope, generation time, and currency.
+6. Export is permission checked, rate/size bounded, and audited.
+
+## 9. Notifications (NOTIF-01)
+
+1. A business event commits before notification delivery is attempted.
+2. A delivery job references the event, recipient eligibility, channel consent/policy, and idempotency key.
+3. Provider failure is recorded and retried under bounded policy; notification failure does not roll back the committed business event.
+4. User-visible read/delivery state is distinct from business status.
+5. Do not send sensitive financial or personal details through an unapproved channel.
+
+Channels, retries, opt-out, and delivery guarantees are unresolved.
+
+## 10. Audit and support access (AUD-01)
+
+1. The backend emits audit events for defined sensitive actions as part of or reliably coupled to the mutation.
+2. Event captures actor, effective role, tenant, action, target, timestamp, outcome, correlation ID, and minimal before/after summary.
+3. Ordinary application roles cannot alter or delete audit history.
+4. Super Admin support access requires an approved grant and reason; access and completion are both audited.
+5. Authorized audit review is read-only and scoped; audit retention and export follow approved policy.
+
+## 11. Common error and recovery paths
+
+- Expired invitation: reject with a safe actionable error; authorized issuer may create a new invitation.
+- Revoked/suspended membership: deny new actions; retain history.
+- Stale update: return conflict with a refresh/retry path; do not overwrite.
+- Duplicate idempotent mutation: return the original result or stable duplicate response, not a second record.
+- Attachment/provider outage: expose a clear failure and safe retry; do not report success.
+- Tenant suspended mid-workflow: prevent new ordinary mutations; preserve already committed records.
+- Failed audit persistence for a mandatory audited operation: operation MUST fail closed or use a durable transactional mechanism; never silently perform an unaudited sensitive action.
