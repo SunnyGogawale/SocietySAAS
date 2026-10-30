@@ -35,6 +35,10 @@ erDiagram
   TENANT ||--o{ SUPPORT_TICKET : receives
   USER ||--o{ SUPPORT_TICKET : submits
   USER o|--o{ SUPPORT_TICKET : assigned_to
+  TENANT ||--|| SOCIETY_SETTINGS : configures
+  TENANT ||--o{ CHARGE_RULES : versions
+  TENANT ||--|| APPROVAL_POLICIES : configures
+  TENANT ||--|| NOTIFICATION_TEMPLATES : configures
 ```
 
 The diagram expresses conceptual associations only. For example, `o|` is intentional where a platform-level action may not belong to one tenant. Physical referential constraints must reject cross-tenant relationships.
@@ -59,6 +63,12 @@ The diagram expresses conceptual associations only. For example, `o|` is intenti
 | `SubscriptionPlan` | Platform-defined plan, limits and optional price metadata | Unique plan code; archived plans cannot be newly assigned; payment processing is separate |
 | `Subscription` | Tenant's current plan, status, explicit trial period and limit snapshot | One current subscription per tenant; configured by platform actor; no billing ledger |
 | `SupportTicket` | Tenant-scoped support request tracked by the platform | Creator and tenant are server-bound; platform ticket access does not imply access to tenant business data |
+| `SocietySettings` | Tenant-scoped identity, locale, numbering, branding and operational rules | One settings document per tenant; backend validation; residents receive a restricted read projection |
+| `ChargeRules` | Versioned future maintenance charge, due-date, late-fee and grace-period rules | Unique tenant/version; area-based charges require an explicit square-foot or square-metre unit; immutable after creation; effective dates cannot be backdated; never rewrites an issued bill |
+| `ApprovalPolicies` | Configurable operation approval requirements | One tenant document; unique operation; configuration only, workflows remain separate |
+| `NotificationTemplates` | Tenant's configured email/SMS/push message templates | One tenant document; unique template keys; delivery/rendering is separate |
+
+`ChargeRules` has no relationship to an issued bill in this phase because there is no billing engine or bill entity. A future billing implementation must capture the chosen rule revision and calculated amounts as an immutable bill snapshot rather than resolving bills against the latest settings.
 
 ## 3. Common data requirements
 

@@ -6,6 +6,7 @@ const societySchema = new mongoose.Schema(
     slug: { type: String, required: true, trim: true, lowercase: true, maxlength: 80 },
     registrationNumber: { type: String, trim: true, maxlength: 80, default: null },
     address: { type: String, trim: true, maxlength: 500, default: null },
+    logoUrl: { type: String, trim: true, maxlength: 2048, default: null },
     contactName: { type: String, trim: true, maxlength: 120, default: null },
     contactEmail: { type: String, trim: true, lowercase: true, maxlength: 254, default: null },
     contactPhone: { type: String, trim: true, maxlength: 32, default: null },

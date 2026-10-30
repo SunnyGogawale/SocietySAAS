@@ -11,6 +11,7 @@ import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { OverviewScreen } from './screens/OverviewScreen';
 import { ResetPasswordScreen } from './screens/ResetPasswordScreen';
+import { SocietySettingsScreen } from './screens/SocietySettingsScreen';
 import { VerifyEmailScreen } from './screens/VerifyEmailScreen';
 import { LoadingState } from './components/Feedback';
 import { Screen } from './components/Screen';
@@ -55,6 +56,7 @@ function MainTabs() {
     >
       <Tab.Screen name="Overview" component={OverviewScreen} />
       <Tab.Screen name="Activity" component={ActivityScreen} />
+      <Tab.Screen name="Society" component={SocietySettingsScreen} />
       <Tab.Screen name="Account" component={AccountScreen} />
     </Tab.Navigator>
   );

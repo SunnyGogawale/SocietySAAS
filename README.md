@@ -71,6 +71,17 @@ configured; no reset email is sent in that case.
 - Society Admin support tickets use the tenant-scoped
   `/api/v1/societies/:societyId/support-tickets` endpoints and are inaccessible
   outside the selected active membership.
+- `GET/PATCH /api/v1/societies/:societyId/settings` provides tenant-scoped society
+  configuration. Active members can read the allowed settings projection; Society
+  Admins can update profile, locale, operational rules, charge-rule revisions,
+  approval policies, and notification templates. House Owners receive a restricted
+  read-only projection.
+
+Maintenance charge-rule updates append immutable, dated revisions. They do not
+recalculate previously issued bills; the repository does not yet include issued
+bills or a billing engine. Logo configuration currently accepts an HTTPS asset URL;
+file upload/storage, notification delivery, and the configured operational
+workflows remain out of scope.
 
 ## Authentication setup
 

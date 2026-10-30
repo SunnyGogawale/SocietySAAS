@@ -2,15 +2,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../api/client.js';
 
 export function usePlatformData(path) {
-  const [data, setData] = useState(null);
+  const [result, setResult] = useState({ path: null, data: null });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (!path) {
+      setResult({ path: null, data: null });
+      setError('');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      setData(await apiRequest(path));
+      setResult({ path, data: await apiRequest(path) });
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -19,10 +25,14 @@ export function usePlatformData(path) {
   }, [path]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (path) refresh();
+    else {
+      setResult({ path: null, data: null });
+      setLoading(false);
+    }
+  }, [path, refresh]);
 
-  return { data, error, loading, refresh, setError };
+  return { data: result.path === path ? result.data : null, error, loading, refresh, setError };
 }
 
 export async function downloadCsv(path, filename) {

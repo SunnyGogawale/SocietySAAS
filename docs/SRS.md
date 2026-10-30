@@ -96,6 +96,16 @@ Detailed workflow and state requirements appear in [MODULE_WORKFLOWS.md](./MODUL
 - Society Admin assignment MUST be explicit, auditable, and scoped. Suspending a tenant MUST block ordinary tenant operations without silently deleting its records; reactivation MUST restore access only where a current active membership remains.
 - Tenant deletion, data retention, offboarding/export, and restoration policy are open decisions; do not implement destructive deletion before they are approved.
 
+### 6.1.1 Society configuration
+
+- An active Society Admin MUST be able to update the society's name, address, contact details, registration number, and HTTPS logo URL. Direct image upload and managed asset storage are not included until a storage/retention policy is approved.
+- Society settings MUST cover IANA time zone, ISO currency code, supported display date format, financial-year start, and building/wing/flat numbering patterns. The server validates all values, including calendar-valid financial-year dates.
+- Configurable visitor, complaint target, notification-channel, facility-booking, brand-color, and approval-policy settings are stored as tenant-scoped configuration. Saving these settings does not imply the corresponding visitor, complaint, notice, expense, or booking workflows are implemented.
+- Maintenance charge rules MUST include frequency, charge definitions, due day, late-fee configuration, grace period, and effective date. Area-based charges require an explicitly selected square-foot or square-metre unit. Every change creates an immutable, versioned rule record; rules cannot be backdated. Existing issued bills MUST retain their original financial snapshot and MUST NOT be recalculated by a settings edit. No billing engine or issued-bill entity is part of this phase.
+- Notification templates are configurable and validated, but delivery, localization, variable rendering, and template preview remain outside this phase.
+- Society Admins can read and write settings for the active authorized tenant. House Owners can read only resident-facing society identity, locale, numbering, and charge schedule; they cannot read administrative policies/templates or modify settings. The same tenant-context and membership checks apply to Web and Mobile APIs.
+- Every successful configuration change MUST write a tenant-scoped audit event that records the section and, for charge rules, the new revision/effective date, without copying private contact details or template content into audit metadata.
+
 ### 6.2 Identity, membership, and home records
 
 - Users MUST authenticate through an approved identity mechanism and have a unique principal identifier independent of email/phone changes.

@@ -30,6 +30,14 @@ navigation. Society Admin support tickets resolve tenant context from the active
 server session and live membership. Accounting, maintenance billing, and payment
 processing are not part of this implementation.
 
+The Society Admin configuration module is exposed through tenant-scoped
+`/api/v1/societies/{societyId}/settings` GET/PATCH routes. A validated active
+membership and server-selected society context are required; write permission is
+limited to Society Admins. Identity/locale/operational settings, approval policies,
+and notification templates are tenant-keyed documents. Charge rules are immutable
+per-society revisions with non-decreasing effective dates. Issued-bill snapshots
+and a billing engine are not present in this phase.
+
 ## 2. Logical components
 
 ### 2.1 Web and mobile clients

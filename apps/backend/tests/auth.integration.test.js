@@ -425,6 +425,229 @@ test('platform-only subscription, audit, and support APIs reject Society Admin a
   assert.match(ticketExport.text, /Access help needed/);
 });
 
+test('society configuration is tenant-scoped, admin-managed, audited, and preserves charge-rule history', async () => {
+  const admin = await createUser({ email: 'settings-admin@example.test' });
+  const owner = await createUser({ email: 'settings-owner@example.test' });
+  const society = await createSociety('settings-society');
+  const otherSociety = await createSociety('settings-other-society');
+  await addMembership(admin, society);
+  await addMembership(owner, society, 'house_owner');
+  await addMembership(admin, otherSociety);
+
+  const adminLogin = await login(admin.email);
+  const ownerLogin = await login(owner.email);
+  const adminHeaders = bearer(adminLogin.body.data.sessionToken);
+  const ownerHeaders = bearer(ownerLogin.body.data.sessionToken);
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+
+  const initial = await request(app)
+    .get(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .expect(200);
+  assert.equal(initial.body.data.settings.currency, 'INR');
+  assert.deepEqual(initial.body.data.approvalPolicies, []);
+
+  const ownerSettings = await request(app)
+    .get(`/api/v1/societies/${society._id}/settings`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(ownerSettings.body.data.society.name, society.name);
+  assert.equal('approvalPolicies' in ownerSettings.body.data, false);
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(ownerHeaders)
+    .send({ profile: { name: 'Owner changed this' } })
+    .expect(403);
+  await request(app)
+    .get(`/api/v1/societies/${otherSociety._id}/settings`)
+    .set(adminHeaders)
+    .expect(404);
+
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      profile: {
+        name: 'Configured Society',
+        address: '10 Main Street',
+        contactName: 'Office',
+        contactEmail: 'office@example.test',
+        contactPhone: '+911234567890',
+        registrationNumber: 'REG-42',
+        logoUrl: 'https://cdn.example.test/logo.png',
+      },
+    })
+    .expect(200);
+  const effectiveToday = new Date();
+  effectiveToday.setUTCHours(0, 0, 0, 0);
+  const firstRules = {
+    effectiveFrom: effectiveToday.toISOString(),
+    frequency: 'monthly',
+    areaUnit: null,
+    charges: [
+      {
+        code: 'maintenance',
+        name: 'Monthly maintenance',
+        calculation: 'fixed_per_home',
+        amountMinor: 125000,
+      },
+    ],
+    dueDayOfPeriod: 10,
+    lateFee: { type: 'fixed', amountMinor: 5000 },
+    gracePeriodDays: 7,
+  };
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      chargeRules: {
+        ...firstRules,
+        charges: [
+          {
+            code: 'area_maintenance',
+            name: 'Area maintenance',
+            calculation: 'per_area',
+            amountMinor: 100,
+          },
+        ],
+      },
+    })
+    .expect(422);
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({ chargeRules: firstRules })
+    .expect(200);
+  const storedV1 = await models.ChargeRules.findOne({
+    societyId: society._id,
+    version: 1,
+  }).lean();
+  assert.ok(storedV1);
+
+  const future = new Date(effectiveToday.getTime() + 86400000).toISOString();
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      chargeRules: {
+        ...firstRules,
+        effectiveFrom: future,
+        charges: [{ ...firstRules.charges[0], amountMinor: 145000 }],
+      },
+    })
+    .expect(200);
+  const [storedV1After, storedV2] = await Promise.all([
+    models.ChargeRules.findById(storedV1._id).lean(),
+    models.ChargeRules.findOne({ societyId: society._id, version: 2 }).lean(),
+  ]);
+  assert.equal(storedV1After.charges[0].amountMinor, 125000);
+  assert.equal(storedV2.charges[0].amountMinor, 145000);
+  const activeRules = await request(app)
+    .get(`/api/v1/societies/${society._id}/settings`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(activeRules.body.data.chargeRules.version, 1);
+
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      settings: {
+        timeZone: 'Not/A_Timezone',
+        currency: 'US',
+        dateFormat: 'DD/MM/YYYY',
+        financialYearStartMonth: 2,
+        financialYearStartDay: 30,
+        numbering: { building: 'B-{number}', wing: 'W-{letter}', flat: 'F-{number}' },
+        visitorRules: { requirePreApproval: false, maxVisitDaysAhead: 30 },
+        complaintRules: { acknowledgmentHours: 24, resolutionTargetHours: 168 },
+        notificationRules: { emailEnabled: true, pushEnabled: true, smsEnabled: false },
+        facilityBookingRules: {
+          maxDaysAhead: 30,
+          requireApproval: true,
+          maxBookingsPerDay: 1,
+        },
+        branding: { primaryColor: '#142b4a', accentColor: '#2563eb' },
+      },
+    })
+    .expect(422);
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      settings: {
+        timeZone: 'Asia/Kolkata',
+        currency: 'INR',
+        dateFormat: 'DD/MM/YYYY',
+        financialYearStartMonth: 4,
+        financialYearStartDay: 1,
+        numbering: { building: 'B-{number}', wing: 'W-{letter}', flat: 'F-{number}' },
+        visitorRules: { requirePreApproval: true, maxVisitDaysAhead: 14 },
+        complaintRules: { acknowledgmentHours: 12, resolutionTargetHours: 120 },
+        notificationRules: { emailEnabled: true, pushEnabled: false, smsEnabled: false },
+        facilityBookingRules: {
+          maxDaysAhead: 45,
+          requireApproval: true,
+          maxBookingsPerDay: 2,
+        },
+        branding: { primaryColor: '#112233', accentColor: '#445566' },
+      },
+    })
+    .expect(200);
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      approvalPolicies: {
+        policies: [
+          {
+            operation: 'expense',
+            enabled: true,
+            requiredApprovals: 2,
+            amountThresholdMinor: 500000,
+          },
+          {
+            operation: 'expense',
+            enabled: true,
+            requiredApprovals: 1,
+            amountThresholdMinor: null,
+          },
+        ],
+      },
+    })
+    .expect(422);
+  await request(app)
+    .patch(`/api/v1/societies/${society._id}/settings`)
+    .set(adminHeaders)
+    .send({
+      notificationTemplates: {
+        templates: [
+          {
+            key: 'notice_published',
+            channel: 'email',
+            subject: 'A new notice',
+            body: 'A society notice was published.',
+            enabled: true,
+          },
+        ],
+      },
+    })
+    .expect(200);
+  const audit = await models.AuditLog.find({
+    societyId: society._id,
+    action: 'society.settings.update',
+  }).lean();
+  assert.equal(audit.length, 5);
+  assert.equal(
+    audit.some((entry) => JSON.stringify(entry.metadata).includes('office@example.test')),
+    false,
+  );
+});
+
 test('plan limits are enforced when inviting additional tenant members', async () => {
   const superAdmin = await createPlatformAdmin();
   const admin = await createUser({ email: 'limited-admin@example.test' });

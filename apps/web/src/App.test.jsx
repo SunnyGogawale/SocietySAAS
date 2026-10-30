@@ -157,4 +157,73 @@ describe('application shell', () => {
       expect.objectContaining({ credentials: 'include' }),
     );
   });
+
+  it('lets a Society Admin view and edit tenant-scoped society settings', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url) => {
+      const data = String(url).includes('/auth/me')
+        ? {
+            user: {
+              id: 'society-admin',
+              email: 'admin@example.test',
+              displayName: 'Society Admin',
+              platformRole: 'user',
+            },
+            societies: [{ id: 'society-1', name: 'North Gardens', role: 'society_admin' }],
+            activeSociety: { id: 'society-1', name: 'North Gardens', role: 'society_admin' },
+            csrfToken: 'csrf-token',
+          }
+        : {
+            society: {
+              id: 'society-1',
+              name: 'North Gardens',
+              address: '1 Garden Road',
+              contactName: 'Office',
+              contactEmail: 'office@example.test',
+              contactPhone: '',
+              registrationNumber: 'REG-1',
+              logoUrl: null,
+            },
+            settings: {
+              timeZone: 'Asia/Kolkata',
+              currency: 'INR',
+              dateFormat: 'DD/MM/YYYY',
+              financialYearStartMonth: 4,
+              financialYearStartDay: 1,
+              numbering: {
+                building: 'Building {number}',
+                wing: 'Wing {letter}',
+                flat: '{floor}{number}',
+              },
+              visitorRules: { requirePreApproval: false, maxVisitDaysAhead: 30 },
+              complaintRules: { acknowledgmentHours: 24, resolutionTargetHours: 168 },
+              notificationRules: { emailEnabled: true, pushEnabled: true, smsEnabled: false },
+              facilityBookingRules: {
+                maxDaysAhead: 30,
+                requireApproval: true,
+                maxBookingsPerDay: 1,
+              },
+              branding: { primaryColor: '#142b4a', accentColor: '#2563eb' },
+            },
+            chargeRules: null,
+            chargeRuleHistory: [],
+            approvalPolicies: [],
+            notificationTemplates: [],
+          };
+      return new Response(JSON.stringify({ success: true, data, requestId: 'settings' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Society settings' }));
+    expect(await screen.findByRole('heading', { name: 'Society settings' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Society name')).toHaveValue('North Gardens');
+    expect(screen.getByLabelText('Billing frequency')).toBeInTheDocument();
+  });
 });

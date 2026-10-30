@@ -14,6 +14,7 @@ import PlatformSocietiesPage from './pages/PlatformSocietiesPage.jsx';
 import PlatformSocietyDetailPage from './pages/PlatformSocietyDetailPage.jsx';
 import PlatformSupportPage from './pages/PlatformSupportPage.jsx';
 import SocietyRegistrationPage from './pages/SocietyRegistrationPage.jsx';
+import SocietySettingsPage from './pages/SocietySettingsPage.jsx';
 import ResetPasswordPage from './pages/ResetPasswordPage.jsx';
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx';
 
@@ -54,6 +55,7 @@ function AppRoutes() {
               <Route index element={<OverviewPage />} />
               <Route path="activity" element={<ActivityPage />} />
               <Route path="account" element={<AccountPage />} />
+              <Route path="settings" element={<SocietySettingsPage />} />
             </>
           )}
           <Route path="*" element={<Navigate to="/" replace />} />

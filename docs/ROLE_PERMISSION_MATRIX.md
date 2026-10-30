@@ -20,6 +20,8 @@ Enforce permissions on the backend, deny by default, and check both action and o
 | Create/view support tickets | No by default | Assigned tenant only | No by default |
 | Read tenant resident/financial content for support | Conditional, explicit audited support access | Assigned tenant only | Own permitted records only |
 | Edit society profile and operational settings | No by default; support grant only | Assigned tenant | No |
+| Read resident-facing society identity, locale, numbering and charge schedule | No by default | Assigned tenant | Own active society membership |
+| Configure society profile, locale, numbering, charge rules, approval policies, visitor/complaint/booking rules, branding and notification templates | No by default; support grant only | Assigned tenant | No |
 | Create/edit/archive homes or units | No by default | Assigned tenant | No |
 | Invite/verify/disable society members | No by default | Assigned tenant, per policy | No |
 | View member directory | No by default; support grant only | Assigned tenant | Own/approved directory fields only |

@@ -7,6 +7,7 @@ const societyNavigation = [
   { label: 'Overview', path: '/' },
   { label: 'Activity', path: '/activity' },
   { label: 'Account', path: '/account' },
+  { label: 'Society settings', path: '/settings' },
 ];
 const platformNavigation = [
   { label: 'Dashboard', path: '/' },

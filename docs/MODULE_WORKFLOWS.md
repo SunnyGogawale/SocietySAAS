@@ -53,6 +53,17 @@ Ticket management does not grant platform operators implicit access to the tenan
 
 **Open policy:** whether owners, co-owners, renters, occupants, and delegates exist as separate relationship types; whether a home can have overlapping ownership periods.
 
+## 4.1 Society configuration (SET-01)
+
+1. A Society Admin opens settings in the active society context. The API verifies the server-selected society and active membership; changing a URL or body society ID does not switch tenant context.
+2. The Admin updates profile/contact/logo, locale and financial-year settings, numbering conventions, or operational rules. Backend validation rejects invalid time zones, date/currency formats, calendar dates, bounds, duplicate policy operations, and malformed templates.
+3. Charge-rule changes create a new revision with an effective date no earlier than today or the latest revision. Previous revisions remain unchanged. When a future billing engine issues bills, it must snapshot the selected revision and amounts on each bill; edits to subsequent rules cannot modify issued bills.
+4. Approval policies and notification templates are stored for later workflow/delivery integration; saving them does not perform approvals or send notifications.
+5. Each successful section update is audited by actor, society, section, and charge-rule revision/effective date. Audit metadata excludes contact values and template content.
+6. House Owners can read only resident-facing profile, locale, numbering, and current charge schedule in Web/Mobile; they cannot update settings or read administrative policies/templates.
+
+**Current implementation boundary:** The repository has no issued-bill model or billing engine, so historical bill preservation is guaranteed by immutable charge-rule revisions and the requirement for future bills to snapshot the applicable revision. No existing bill recalculation path exists.
+
 ## 5. Announcement (COM-01)
 
 1. Society Admin drafts content, audience, and optional publication window.
