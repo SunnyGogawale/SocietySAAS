@@ -12,14 +12,25 @@
 
 ## 2. Tenant onboarding and lifecycle (PLAT-01)
 
-1. Super Admin creates a tenant with a unique internal ID and minimal profile.
-2. Platform assigns at least one Society Admin using an expiring/revocable invitation.
-3. Society Admin accepts, authenticates, and completes required society setup.
-4. Admin creates homes and invites owners; owner access remains pending until approved verification.
-5. Super Admin may suspend/reactivate tenant under an auditable action.
-6. Tenant retirement/export/deletion is blocked until retention and offboarding policies are approved.
+1. A registrant submits a society profile and primary admin contact; the request enters `pending_review`.
+2. Super Admin reviews the submitted profile and either records a reasoned rejection or chooses an active subscription plan and explicit trial duration.
+3. Approval records `provisioning`, configures the subscription and plan-limit snapshot, and issues a single-use Society Admin invitation to the registered contact.
+4. After the invitation is issued, the tenant becomes `active`; the invited Society Admin accepts and authenticates.
+5. Super Admin can update the tenant profile, select an active primary admin, invite additional Society Admins, suspend/reactivate an active tenant, or archive it. Every platform mutation is audited.
+6. Suspension blocks tenant-scoped APIs without deleting membership/history. Archiving is terminal in the platform API. Hard deletion remains unavailable pending retention/offboarding policy.
 
-**Proposed tenant states:** `provisioning → active ↔ suspended → retired`. No hard-delete transition in MVP.
+**Implemented tenant states:** `pending_review → provisioning → active ↔ suspended`, `pending_review → rejected`, and `active/suspended → archived`. Failed provisioning remains retryable in `provisioning`.
+
+**Subscription setup:** Plans define optional limits; provisioning copies the plan limits to the subscription, and plan-limit edits propagate to existing subscriptions. Trial days are explicit; zero days produces `active`, and a positive duration produces `trialing`. No payment collection, invoice generation, accounting, or maintenance billing occurs in this workflow.
+
+## 2.1 Support tickets and platform operations
+
+1. A Society Admin creates a support ticket inside the selected active society context. The ticket is stored with that server-resolved society and the submitting user.
+2. Society Admin ticket listing is restricted to that same society and requires the `members:read` permission.
+3. Only Super Admin can search, filter, paginate, export, and update tickets across societies. Ticket status changes are audited.
+4. The platform dashboard reports tenant/subscription counts, open support tickets, backend/database health, uptime, and the count of failed audit outcomes over the prior 24 hours.
+
+Ticket management does not grant platform operators implicit access to the tenant's other records.
 
 ## 3. Identity, invitation, and membership (IAM-01/02/03)
 

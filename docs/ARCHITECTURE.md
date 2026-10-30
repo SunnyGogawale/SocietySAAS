@@ -22,6 +22,14 @@ flowchart LR
 
 Clients are untrusted presentation layers. The backend is the policy and business-rule enforcement point. External services are behind explicit adapters; no integration is assumed just because an interface is shown.
 
+**Current implementation note:** The Web application now provides a Super Admin
+console backed by `/api/v1/platform` APIs for registration review, tenant lifecycle,
+subscription plans, support-ticket tracking, audit search/export, and operational
+summaries. The API role-checks every platform endpoint independently of the Web
+navigation. Society Admin support tickets resolve tenant context from the active
+server session and live membership. Accounting, maintenance billing, and payment
+processing are not part of this implementation.
+
 ## 2. Logical components
 
 ### 2.1 Web and mobile clients

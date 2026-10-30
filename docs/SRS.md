@@ -88,9 +88,12 @@ Detailed workflow and state requirements appear in [MODULE_WORKFLOWS.md](./MODUL
 
 ### 6.1 Platform and tenant lifecycle
 
-- The platform MUST allow authorized Super Admins to create, configure, suspend, reactivate, and retire society tenant records.
+- The platform MUST accept society registration requests and allow only Super Admins to review, approve, reject, provision, configure, suspend, reactivate, and archive society tenant records.
+- Approval MUST validate the society profile, configure an explicitly selected subscription plan/trial, invite a primary Society Admin, and audit the resulting lifecycle action.
+- Subscription plans MUST support configurable limits and subscription status/trial periods. Billing, payment collection, currencies/pricing policy, and limit policy beyond implemented member invitation limits remain separate decisions.
+- Super Admins MUST be able to inspect platform audit events, cross-tenant support tickets, system/database status, and aggregate operational error counts. These controls MUST NOT grant routine access to tenant business content.
 - A tenant MUST have a stable internal identifier and explicit status; tenant display names are not identifiers.
-- Society Admin assignment MUST be explicit, auditable, and scoped. Suspending a tenant MUST block ordinary tenant operations without silently deleting its records.
+- Society Admin assignment MUST be explicit, auditable, and scoped. Suspending a tenant MUST block ordinary tenant operations without silently deleting its records; reactivation MUST restore access only where a current active membership remains.
 - Tenant deletion, data retention, offboarding/export, and restoration policy are open decisions; do not implement destructive deletion before they are approved.
 
 ### 6.2 Identity, membership, and home records
@@ -247,7 +250,7 @@ Do not silently choose defaults for these product or compliance decisions. Recor
 | D-05 | Identity method, MFA requirement, password recovery, supported identity providers, and account uniqueness rules | IAM-01–IAM-03 |
 | D-06 | Whether one person can access multiple societies and which role combinations are allowed | IAM, tenant switching |
 | D-07 | Home-to-owner cardinality, renters/occupants/delegates, owner verification evidence and approver | SOC-02, IAM-03 |
-| D-08 | Tenant lifecycle: trial/subscription/billing, suspension behavior, export, retention, deletion, and restoration | PLAT-01 |
+| D-08 | Commercial/access policy: trial expiry, subscription-status effects on access, pricing/billing, tenant suspension behavior, export, retention, deletion, and restoration | PLAT-01 |
 | D-09 | Mobile delivery: responsive web/PWA/native; supported OS/devices; offline and push behavior | UX-01, NOTIF-01 |
 | D-10 | Document and attachment policy: storage, formats, limits, scanning, retention, and access | DOC-01, REQ-01 |
 | D-11 | Communication channels, consent/legal basis, templates, language, delivery guarantees | NOTIF-01 |

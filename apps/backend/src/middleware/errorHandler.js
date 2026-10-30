@@ -13,6 +13,12 @@ function errorHandler(logger) {
       normalized = new AppError(422, 'validation_failed', 'Request validation failed');
     } else if (error.type === 'entity.too.large') {
       normalized = new AppError(413, 'request_too_large', 'Request body exceeds the allowed size');
+    } else if (error.code === 11000) {
+      normalized = new AppError(
+        409,
+        'resource_conflict',
+        'A record with these details already exists',
+      );
     }
 
     const statusCode = normalized instanceof AppError ? normalized.statusCode : 500;

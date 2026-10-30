@@ -3,30 +3,7 @@ const { createRawToken, hashToken } = require('../utils/securityToken');
 const { toPublicUser } = require('./auth.service');
 
 function createMembershipService({ models, audit, mailer, config, clock = () => new Date() }) {
-  const { Society, SocietyMembership, User } = models;
-
-  async function createSociety({ name, slug, request, actor }) {
-    const society = await Society.create({
-      name: name.trim(),
-      slug: slug.trim().toLowerCase(),
-      status: 'active',
-    });
-    await audit.record({
-      actorId: actor._id,
-      societyId: society._id,
-      action: 'society.create',
-      targetType: 'society',
-      targetId: society._id,
-      outcome: 'success',
-      requestId: request.id,
-    });
-    return {
-      id: String(society._id),
-      name: society.name,
-      slug: society.slug,
-      status: society.status,
-    };
-  }
+  const { Society, SocietyMembership, Subscription, User } = models;
 
   async function inviteMember({
     society: suppliedSociety,
@@ -48,19 +25,35 @@ function createMembershipService({ models, audit, mailer, config, clock = () => 
 
     const normalizedEmail = email.trim().toLowerCase();
     let user = await User.findOne({ email: normalizedEmail });
+    let membership = user
+      ? await SocietyMembership.findOne({ societyId: society._id, userId: user._id })
+      : null;
+    const subscription = await Subscription.findOne({ societyId: society._id }).select('limits');
+    const memberLimit = subscription?.limits?.maxMembers;
+    const membershipConsumesSlot =
+      membership && !['revoked', 'expired'].includes(membership.status);
+    if (!membershipConsumesSlot && memberLimit) {
+      const currentMembers = await SocietyMembership.countDocuments({
+        societyId: society._id,
+        status: { $nin: ['revoked', 'expired'] },
+      });
+      if (currentMembers >= memberLimit) {
+        throw new AppError(
+          409,
+          'plan_member_limit_reached',
+          'The society has reached its member limit',
+        );
+      }
+    }
+
     if (!user) {
       user = await User.create({
         email: normalizedEmail,
-        displayName: `Invited member`,
+        displayName: 'Invited member',
         accountStatus: 'invited',
         platformRole: 'user',
       });
     }
-
-    let membership = await SocietyMembership.findOne({
-      societyId: society._id,
-      userId: user._id,
-    });
     if (membership?.status === 'active' || membership?.status === 'pending_verification') {
       throw new AppError(409, 'membership_exists', 'This user already has a society membership');
     }
@@ -74,12 +67,8 @@ function createMembershipService({ models, audit, mailer, config, clock = () => 
 
     const invitationToken = createRawToken();
     const invitationExpiresAt = new Date(clock().getTime() + config.invitationTtlHours * 3600000);
-    if (!membership) {
-      membership = new SocietyMembership({
-        societyId: society._id,
-        userId: user._id,
-      });
-    }
+    if (!membership)
+      membership = new SocietyMembership({ societyId: society._id, userId: user._id });
     membership.role = role;
     membership.status = 'invited';
     membership.permissions = [];
@@ -221,6 +210,19 @@ function createMembershipService({ models, audit, mailer, config, clock = () => 
     if (!membership || membership.status === 'revoked' || membership.status === 'expired') {
       throw new AppError(404, 'membership_not_found', 'The requested membership was not found');
     }
+    if (role !== 'society_admin') {
+      const society = await Society.findOne({
+        _id: societyId,
+        primaryAdminMembershipId: membership._id,
+      }).select('_id');
+      if (society) {
+        throw new AppError(
+          409,
+          'primary_admin_reassignment_required',
+          'Assign a new primary Society Admin before changing this membership role',
+        );
+      }
+    }
     const previousRole = membership.role;
     membership.role = role;
     membership.permissions = [];
@@ -243,7 +245,6 @@ function createMembershipService({ models, audit, mailer, config, clock = () => 
   }
 
   return {
-    createSociety,
     inviteMember,
     listMemberships,
     updateMembershipRole,

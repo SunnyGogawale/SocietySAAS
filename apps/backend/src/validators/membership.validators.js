@@ -5,15 +5,6 @@ const emailSchema = z
   .max(254)
   .transform((email) => email.trim().toLowerCase());
 
-const createSocietySchema = z.strictObject({
-  name: z.string().trim().min(2).max(160),
-  slug: z
-    .string()
-    .trim()
-    .min(3)
-    .max(80)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-});
 const inviteAdminSchema = z.strictObject({ email: emailSchema });
 const inviteOwnerSchema = z.strictObject({ email: emailSchema });
 const memberListQuerySchema = z.strictObject({
@@ -31,7 +22,6 @@ const updateMembershipRoleSchema = z.strictObject({
 });
 
 module.exports = {
-  createSocietySchema,
   inviteAdminSchema,
   inviteOwnerSchema,
   memberListQuerySchema,

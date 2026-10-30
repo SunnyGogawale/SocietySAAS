@@ -92,4 +92,69 @@ describe('application shell', () => {
     );
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
+
+  it('shows the platform console only for an authenticated Super Admin', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url) => {
+      const data = String(url).includes('/auth/me')
+        ? {
+            user: {
+              id: 'platform-user',
+              email: 'platform@example.test',
+              displayName: 'Platform Admin',
+              platformRole: 'super_admin',
+            },
+            societies: [],
+            activeSociety: null,
+            csrfToken: 'csrf-token',
+          }
+        : {
+            societies: {
+              total: 4,
+              active: 3,
+              suspended: 1,
+              pendingReview: 0,
+              provisioning: 0,
+              rejected: 0,
+              archived: 0,
+            },
+            subscriptions: {
+              total: 3,
+              trialing: 1,
+              active: 2,
+              pastDue: 0,
+              suspended: 0,
+              canceled: 0,
+              plans: [],
+            },
+            support: { openTickets: 0 },
+            operations: {
+              status: 'ok',
+              database: 'connected',
+              uptimeSeconds: 100,
+              failuresLast24Hours: 0,
+            },
+          };
+      return new Response(JSON.stringify({ success: true, data, requestId: 'test' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Platform dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Subscription plans' })).toHaveAttribute(
+      'href',
+      '/platform/plans',
+    );
+    expect(await screen.findByText('Active tenants')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/platform/dashboard'),
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
 });

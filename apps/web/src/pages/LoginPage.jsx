@@ -59,6 +59,9 @@ export default function LoginPage() {
       <Link className="auth-link" to="/forgot-password">
         Forgot your password?
       </Link>
+      <Link className="auth-link" to="/register-society">
+        Register a society
+      </Link>
     </AuthPage>
   );
 }

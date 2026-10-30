@@ -30,6 +30,11 @@ erDiagram
   TENANT o|--o{ AUDIT_EVENT : scopes
   TENANT ||--o{ NOTIFICATION : scopes
   USER ||--o{ NOTIFICATION : receives
+  TENANT ||--|| SUBSCRIPTION : has
+  SUBSCRIPTION_PLAN ||--o{ SUBSCRIPTION : governs
+  TENANT ||--o{ SUPPORT_TICKET : receives
+  USER ||--o{ SUPPORT_TICKET : submits
+  USER o|--o{ SUPPORT_TICKET : assigned_to
 ```
 
 The diagram expresses conceptual associations only. For example, `o|` is intentional where a platform-level action may not belong to one tenant. Physical referential constraints must reject cross-tenant relationships.
@@ -51,6 +56,9 @@ The diagram expresses conceptual associations only. For example, `o|` is intenti
 | `FinancialAllocation` | Links payment/credit to charge or other approved target | Same tenant and compatible currency; amount within permitted bounds |
 | `AuditEvent` | Append-only accountability record | Actor, tenant context, action, target, timestamp, outcome, minimal payload |
 | `Notification` | Delivery/read state distinct from business data | Recipient, tenant, event reference, channel/status; no authority to alter source state |
+| `SubscriptionPlan` | Platform-defined plan, limits and optional price metadata | Unique plan code; archived plans cannot be newly assigned; payment processing is separate |
+| `Subscription` | Tenant's current plan, status, explicit trial period and limit snapshot | One current subscription per tenant; configured by platform actor; no billing ledger |
+| `SupportTicket` | Tenant-scoped support request tracked by the platform | Creator and tenant are server-bound; platform ticket access does not imply access to tenant business data |
 
 ## 3. Common data requirements
 

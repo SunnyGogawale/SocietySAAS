@@ -11,9 +11,13 @@ Enforce permissions on the backend, deny by default, and check both action and o
 
 | Capability | Super Admin | Society Admin | House Owner |
 |---|---|---|---|
-| Create/configure/suspend society tenant | Yes | No | No |
-| Assign Society Admin to tenant | Yes | No | No |
-| View platform health/tenant status metadata | Yes | No | No |
+| Review/reject/provision, configure, suspend/reactivate, or archive society tenant | Yes | No | No |
+| Configure plans, trials, subscription status, and plan limits | Yes | No | No |
+| Assign/manage primary Society Admin | Yes | No | No |
+| View platform dashboard, cross-tenant status and operational summaries | Yes | No | No |
+| View/export platform audit events | Yes | No | No |
+| Search/update/export cross-tenant support tickets | Yes | No | No |
+| Create/view support tickets | No by default | Assigned tenant only | No by default |
 | Read tenant resident/financial content for support | Conditional, explicit audited support access | Assigned tenant only | Own permitted records only |
 | Edit society profile and operational settings | No by default; support grant only | Assigned tenant | No |
 | Create/edit/archive homes or units | No by default | Assigned tenant | No |

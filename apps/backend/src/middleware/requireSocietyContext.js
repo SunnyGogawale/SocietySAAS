@@ -32,20 +32,21 @@ function requireSocietyContext({ models, audit }) {
       });
     }
 
-    const society = await models.Society.findOne({
-      _id: sessionSocietyId,
-      status: 'active',
-    });
-    const membership = society
-      ? await models.SocietyMembership.findOne({
-          societyId: society._id,
-          userId: request.auth.user._id,
-          status: 'active',
-        })
-      : null;
+    const society = await models.Society.findById(sessionSocietyId);
+    const membership =
+      society?.status === 'active'
+        ? await models.SocietyMembership.findOne({
+            societyId: society._id,
+            userId: request.auth.user._id,
+            status: 'active',
+          })
+        : null;
 
     if (!society || !membership) {
-      if (request.auth.session.activeSocietyId) {
+      if (
+        request.auth.session.activeSocietyId &&
+        (!society || society.status === 'archived' || (society.status === 'active' && !membership))
+      ) {
         request.auth.session.activeSocietyId = null;
         await request.auth.session.save();
       }
@@ -57,7 +58,7 @@ function requireSocietyContext({ models, audit }) {
         targetId: sessionSocietyId,
         outcome: 'failure',
         requestId: request.id,
-        metadata: { reason: 'active_membership_missing', method: request.method },
+        metadata: { reason: 'society_or_membership_unavailable', method: request.method },
       });
       return sendError(request, response, {
         statusCode: 403,

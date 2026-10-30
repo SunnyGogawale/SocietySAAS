@@ -1,9 +1,33 @@
 const { sendError } = require('../utils/apiResponse');
 
 const ROLE_PERMISSIONS = Object.freeze({
-  society_admin: new Set(['members:read', 'members:invite', 'members:manage']),
+  society_admin: new Set([
+    'members:read',
+    'members:invite',
+    'members:manage',
+    'support:tickets:create',
+  ]),
   house_owner: new Set(['profile:read']),
 });
+
+function requirePlatformAdmin(audit) {
+  return async function platformAdminOnly(request, response, next) {
+    if (request.auth?.user?.platformRole === 'super_admin') return next();
+    await audit?.record({
+      actorId: request.auth?.user?._id ?? null,
+      action: 'auth.permission.denied',
+      targetType: 'platform',
+      outcome: 'failure',
+      requestId: request.id,
+      metadata: { requiredRole: 'super_admin', method: request.method },
+    });
+    return sendError(request, response, {
+      statusCode: 403,
+      code: 'permission_denied',
+      message: 'You do not have permission to perform this action',
+    });
+  };
+}
 
 function requirePermissions(audit, ...requiredPermissions) {
   return async function authorize(request, response, next) {
@@ -36,4 +60,4 @@ function requirePermissions(audit, ...requiredPermissions) {
   };
 }
 
-module.exports = { ROLE_PERMISSIONS, requirePermissions };
+module.exports = { ROLE_PERMISSIONS, requirePermissions, requirePlatformAdmin };

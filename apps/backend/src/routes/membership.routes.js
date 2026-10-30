@@ -3,12 +3,10 @@ const { createMembershipController } = require('../controllers/membership.contro
 const { createAuthenticate } = require('../middleware/authenticate');
 const { createAuthRateLimit } = require('../middleware/authRateLimit');
 const { csrfProtection } = require('../middleware/csrfProtection');
-const { requirePermissions } = require('../middleware/authorize');
+const { requirePlatformAdmin, requirePermissions } = require('../middleware/authorize');
 const { requireSocietyContext } = require('../middleware/requireSocietyContext');
 const { validateRequest } = require('../middleware/validateRequest');
 const {
-  createSocietySchema,
-  inviteAdminSchema,
   inviteOwnerSchema,
   memberListQuerySchema,
   updateMembershipRoleSchema,
@@ -22,29 +20,12 @@ function createMembershipRouter({ config, models, audit, membershipService }) {
   const authenticate = createAuthenticate({ models, audit });
   const authRateLimit = createAuthRateLimit(config, audit);
   const societyContext = requireSocietyContext({ models, audit });
-
-  router.post(
-    '/platform/societies',
-    authenticate,
-    csrfProtection,
-    requirePermissions(audit, 'platform:societies:create'),
-    validateRequest({ body: createSocietySchema }),
-    controller.createSociety,
-  );
-  router.post(
-    '/platform/societies/:societyId/invitations',
-    authenticate,
-    csrfProtection,
-    requirePermissions(audit, 'platform:societies:create'),
-    authRateLimit,
-    validateRequest({ params: societyIdParamsSchema, body: inviteAdminSchema }),
-    controller.invitePlatformAdmin,
-  );
+  const platformAdmin = requirePlatformAdmin(audit);
   router.patch(
     '/platform/societies/:societyId/memberships/:membershipId/role',
     authenticate,
     csrfProtection,
-    requirePermissions(audit, 'platform:societies:create'),
+    platformAdmin,
     validateRequest({ params: idParamsSchema, body: updateMembershipRoleSchema }),
     controller.updateMembershipRole,
   );

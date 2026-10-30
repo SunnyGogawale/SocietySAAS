@@ -3,16 +3,25 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Alert } from '../components/ui/Alert.jsx';
 
-const navigation = [
+const societyNavigation = [
   { label: 'Overview', path: '/' },
   { label: 'Activity', path: '/activity' },
   { label: 'Account', path: '/account' },
+];
+const platformNavigation = [
+  { label: 'Dashboard', path: '/' },
+  { label: 'Societies', path: '/platform/societies' },
+  { label: 'Subscription plans', path: '/platform/plans' },
+  { label: 'Support tickets', path: '/platform/support' },
+  { label: 'Platform audit', path: '/platform/audit' },
 ];
 
 export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedback, setFeedback] = useState('');
   const { activeSociety, isAuthenticated, logout, selectSociety, societies, user } = useAuth();
+  const isPlatformAdmin = user?.platformRole === 'super_admin';
+  const navigation = isPlatformAdmin ? platformNavigation : societyNavigation;
   const navigate = useNavigate();
 
   async function handleLogout() {
@@ -43,7 +52,7 @@ export default function AppLayout() {
           </span>
           <span className="brand__name">SocietySAAS</span>
         </a>
-        <p className="sidebar__caption">WORKSPACE</p>
+        <p className="sidebar__caption">{isPlatformAdmin ? 'PLATFORM CONSOLE' : 'WORKSPACE'}</p>
         <nav className="sidebar__nav" aria-label="Main navigation">
           {navigation.map((item) => (
             <NavLink
@@ -59,7 +68,7 @@ export default function AppLayout() {
         </nav>
         <div className="sidebar__footer">
           <span className="status-dot" aria-hidden="true" />
-          Application foundation
+          {isPlatformAdmin ? 'Platform access' : 'Society workspace'}
         </div>
       </aside>
 
@@ -84,8 +93,10 @@ export default function AppLayout() {
             <span aria-hidden="true">{menuOpen ? '×' : '☰'}</span>
           </button>
           <div className="topbar__context">
-            <span className="topbar__eyebrow">Society management</span>
-            {societies.length > 1 ? (
+            <span className="topbar__eyebrow">
+              {isPlatformAdmin ? 'Platform administration' : 'Society management'}
+            </span>
+            {!isPlatformAdmin && societies.length > 1 ? (
               <label className="society-select-label">
                 <span className="sr-only">Active society</span>
                 <select
@@ -102,11 +113,11 @@ export default function AppLayout() {
                   ))}
                 </select>
               </label>
-            ) : activeSociety ? (
+            ) : !isPlatformAdmin && activeSociety ? (
               <span className="status-badge status-badge--neutral">{activeSociety.name}</span>
             ) : (
               <span className="status-badge status-badge--neutral">
-                {user?.platformRole === 'super_admin' ? 'Platform' : 'Setup'}
+                {isPlatformAdmin ? 'Super Admin' : 'Setup'}
               </span>
             )}
           </div>

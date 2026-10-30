@@ -1,19 +1,19 @@
 # SocietySAAS
 
-JavaScript monorepo foundation for the Society Management SaaS, with separate web,
-mobile, and backend applications. This repository currently contains application
-shells and shared infrastructure only; no society-management business workflows have
-been implemented.
+JavaScript monorepo for the Society Management SaaS, with separate web, mobile, and
+backend applications. The platform currently includes authentication and the
+Super Admin tenant/subscription/support console. Society accounting and maintenance
+billing workflows have not been implemented.
 
-The Phase 1 specification is in [`docs/`](./docs/). The SRS and related documents
-remain a review baseline: complete the roadmap's specification approval gate and
-resolve applicable open decisions before building business modules.
+The product specification is in [`docs/`](./docs/). Decisions that affect financial
+rules, payment processing, retention, and other not-yet-built modules remain open;
+this implementation does not assume those policies.
 
 ## Applications
 
 | Workspace                    | Stack                          | Purpose                                                              |
 | ---------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| `@societysaas/web`           | React, Vite, JavaScript        | Responsive administrator/owner web shell                             |
+| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and responsive society account shell             |
 | `@societysaas/mobile`        | React Native, Expo, JavaScript | Native-capable mobile navigation and screen shell                    |
 | `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, and health endpoints |
 | `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                        |
@@ -65,6 +65,12 @@ configured; no reset email is sent in that case.
   society on the server-side session.
 - Platform society and tenant membership endpoints are protected by platform role,
   active membership, and permission middleware; see the backend route modules.
+- `POST /api/v1/platform/registrations` accepts society registration submissions.
+  Super Admin-only endpoints under `/api/v1/platform` review and provision tenants,
+  manage subscriptions/plans, inspect audit events, and track support tickets.
+- Society Admin support tickets use the tenant-scoped
+  `/api/v1/societies/:societyId/support-tickets` endpoints and are inaccessible
+  outside the selected active membership.
 
 ## Authentication setup
 
@@ -83,15 +89,18 @@ npm run admin:create-super-admin --workspace @societysaas/backend
 ```
 
 The password is prompted without echo. The script refuses to create another
-platform administrator once one exists. Then sign in as that administrator, create
-societies through the platform API, and invite the first Society Admin by email.
+platform administrator once one exists. Then sign in as that administrator.
+Prospective societies can submit through the Web sign-in page or registration API;
+the Super Admin reviews the registration, selects a plan and explicit trial duration,
+and provisions the tenant with a primary Society Admin invitation.
 
 Society-scoped APIs require an active server-selected membership. Each request
 revalidates that membership and the active society; changing the URL, request
 body, or query parameter cannot change authorization scope. Revoked memberships
 stop authorizing the next request.
 
-No sample account, tenant data, business endpoint, or seeded database is included.
+No sample account, tenant data, or seeded database is included. Society accounting,
+maintenance billing, and payment processing endpoints are not implemented.
 
 ## Scripts
 
@@ -129,8 +138,34 @@ docs/
 ```
 
 Backend layers are separated so future features can add domain code without
-coupling HTTP handlers, validation, data models, or persistence. Empty domain
-directories intentionally contain no business logic.
+coupling HTTP handlers, validation, data models, or persistence.
+
+## Super Admin platform console
+
+The Web console is available to authenticated Super Admins at `/`. It includes a
+platform dashboard, tenant review/search/filter/sort/pagination and CSV export,
+society profile and primary-admin management, tenant suspension/reactivation/archive,
+subscription plan configuration and per-tenant subscription status/trial controls,
+support-ticket tracking, and paginated platform audit logs/exports. Backend routes
+independently enforce the Super Admin role; Society Admins receive `403` for
+platform-wide records and controls.
+
+Tenant statuses are `pending_review`, `provisioning`, `rejected`, `active`,
+`suspended`, and `archived`. Approval configures the subscription and sends the
+registered contact an invitation; the society is marked active after the invitation
+has been issued. A failed provision remains retryable as `provisioning`. Suspension
+blocks tenant-scoped requests without revoking membership or erasing data;
+reactivation restores access when the membership remains active. Archived societies
+cannot be reactivated or hard-deleted through the platform API.
+
+Plans carry optional member/home/storage limits. The member limit is applied to
+tenant invitations; no home or storage business modules are enabled. Trial duration
+is explicitly supplied during provisioning. Optional plan prices use integer minor
+currency units and require a currency code; payment collection and invoicing are
+not implemented. Subscription status does not automatically alter tenant access:
+active society status and active membership currently determine API access; no
+trial-expiry job or automatic suspension policy is enabled. Support ticket records
+do not grant access to tenant records.
 
 ## Operational notes
 
@@ -143,7 +178,7 @@ directories intentionally contain no business logic.
 - Health endpoints contain no user or tenant data. The readiness endpoint is
   intended for dependency-aware orchestration.
 - `docs/IMPLEMENTATION_ROADMAP.md` defines feature acceptance criteria and
-  dependencies. No feature work should start before the specification is approved.
+  dependencies. Financial and maintenance billing modules remain out of scope.
 
 ## Validation and dependency notes
 

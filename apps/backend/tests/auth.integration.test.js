@@ -178,23 +178,85 @@ test('expired sessions are rejected', async () => {
   assert.equal(response.body.error.code, 'session_invalid');
 });
 
-test('platform invitation creates a society admin account and a verified acceptance is one-use', async () => {
+test('Super Admin provisions registrations, controls tenant access, and invites a primary admin', async () => {
   const superAdmin = await createPlatformAdmin();
   const platformLogin = await login(superAdmin.email);
   const headers = bearer(platformLogin.body.data.sessionToken);
-  const societyResponse = await request(app)
-    .post('/api/v1/platform/societies')
+  const societyAdmin = await createUser({ email: 'society-admin@example.test' });
+  const societyAdminLogin = await login(societyAdmin.email);
+  const societyAdminHeaders = bearer(societyAdminLogin.body.data.sessionToken);
+
+  await request(app).get('/api/v1/platform/dashboard').set(societyAdminHeaders).expect(403);
+  const planResponse = await request(app)
+    .post('/api/v1/platform/plans')
     .set(headers)
-    .send({ name: 'Cedar Court', slug: 'cedar-court' })
+    .send({
+      name: 'Standard',
+      code: 'standard',
+      description: 'Configured test plan',
+      limits: { maxMembers: 8, maxHomes: 12, maxStorageMb: 512 },
+      priceMinor: null,
+      currency: null,
+    })
     .expect(201);
-  const societyId = societyResponse.body.data.society.id;
+  const submitted = await request(app)
+    .post('/api/v1/platform/registrations')
+    .send({
+      name: 'Cedar Court',
+      slug: 'cedar-court',
+      registrationNumber: 'CC-100',
+      address: '14 Cedar Street',
+      contactName: 'Cedar Contact',
+      contactEmail: 'admin@example.test',
+      contactPhone: '+10000000000',
+    })
+    .expect(201);
+  const societyId = submitted.body.data.registration.id;
+  assert.equal(submitted.body.data.registration.status, 'pending_review');
+
+  const pendingList = await request(app)
+    .get('/api/v1/platform/societies?status=pending_review&q=cedar-court&page=1&limit=1')
+    .set(headers)
+    .expect(200);
+  assert.equal(pendingList.body.data.pagination.total, 1);
+  const unauthorizedExport = await request(app)
+    .get('/api/v1/platform/societies/export')
+    .set(societyAdminHeaders)
+    .expect(403);
+  assert.equal(unauthorizedExport.body.error.code, 'permission_denied');
+
+  const rejectedRegistration = await request(app)
+    .post('/api/v1/platform/registrations')
+    .send({
+      name: 'Rejected Society',
+      slug: 'rejected-society',
+      contactName: 'Rejected Contact',
+      contactEmail: 'rejected@example.test',
+    })
+    .expect(201);
+  const rejectedId = rejectedRegistration.body.data.registration.id;
+  await request(app)
+    .post(`/api/v1/platform/societies/${rejectedId}/reject`)
+    .set(headers)
+    .send({ reason: 'Registration details could not be verified.' })
+    .expect(200);
+  assert.equal((await models.Society.findById(rejectedId)).status, 'rejected');
 
   await request(app)
-    .post(`/api/v1/platform/societies/${societyId}/invitations`)
+    .get(`/api/v1/platform/societies/${societyId}`)
+    .set(societyAdminHeaders)
+    .expect(403);
+  const approved = await request(app)
+    .post(`/api/v1/platform/societies/${societyId}/approve`)
     .set(headers)
-    .send({ email: 'admin@example.test' })
-    .expect(201);
+    .send({ planId: planResponse.body.data.plan.id, trialDays: 21 })
+    .expect(200);
+  assert.equal(approved.body.data.society.status, 'active');
+  assert.equal(approved.body.data.society.subscription.status, 'trialing');
+  assert.equal(approved.body.data.society.subscription.plan.id, planResponse.body.data.plan.id);
+  assert.equal(approved.body.data.society.primaryAdmin.email, 'admin@example.test');
   assert.equal(delivery.invitations.length, 1);
+  assert.ok(await models.AuditLog.findOne({ action: 'society.registration.approve', societyId }));
 
   const accepted = await request(app)
     .post('/api/v1/auth/invitations/accept')
@@ -217,6 +279,203 @@ test('platform invitation creates a society admin account and a verified accepta
   const adminLogin = await login('admin@example.test', 'a very secure password');
   assert.equal(adminLogin.status, 200);
   assert.equal(adminLogin.body.data.societies[0].id, societyId);
+
+  const adminHeaders = bearer(adminLogin.body.data.sessionToken);
+  const alternateAdmin = await createUser({ email: 'alternate-admin@example.test' });
+  const alternateMembership = await addMembership(
+    alternateAdmin,
+    await models.Society.findById(societyId),
+  );
+  await request(app)
+    .patch(
+      `/api/v1/platform/societies/${societyId}/memberships/${approved.body.data.society.primaryAdmin.membershipId}/role`,
+    )
+    .set(headers)
+    .send({ role: 'house_owner' })
+    .expect(409);
+  await request(app)
+    .put(`/api/v1/platform/societies/${societyId}/primary-admin`)
+    .set(headers)
+    .send({ membershipId: String(alternateMembership._id) })
+    .expect(200);
+  const profile = await request(app)
+    .patch(`/api/v1/platform/societies/${societyId}/profile`)
+    .set(headers)
+    .send({ address: 'Updated address' })
+    .expect(200);
+  assert.equal(profile.body.data.society.address, 'Updated address');
+  await request(app)
+    .post(`/api/v1/auth/societies/${societyId}/select`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  await request(app)
+    .get(`/api/v1/societies/${societyId}/memberships`)
+    .set(adminHeaders)
+    .expect(200);
+
+  await request(app)
+    .patch(`/api/v1/platform/societies/${societyId}/status`)
+    .set(headers)
+    .send({ status: 'suspended' })
+    .expect(200);
+  await request(app)
+    .get(`/api/v1/societies/${societyId}/memberships`)
+    .set(adminHeaders)
+    .expect(403);
+  await request(app)
+    .patch(`/api/v1/platform/societies/${societyId}/status`)
+    .set(headers)
+    .send({ status: 'active' })
+    .expect(200);
+  const exportResponse = await request(app)
+    .get('/api/v1/platform/societies/export?status=active&q=cedar')
+    .set(headers)
+    .expect(200);
+  assert.match(exportResponse.headers['content-type'], /text\/csv/);
+  assert.match(exportResponse.text, /Cedar Court/);
+  assert.ok(
+    await models.AuditLog.findOne({ action: 'platform.societies.export', outcome: 'success' }),
+  );
+  await request(app)
+    .get(`/api/v1/societies/${societyId}/memberships`)
+    .set(adminHeaders)
+    .expect(200);
+  await request(app)
+    .patch(`/api/v1/platform/societies/${societyId}/status`)
+    .set(headers)
+    .send({ status: 'archived' })
+    .expect(200);
+  await request(app)
+    .patch(`/api/v1/platform/societies/${societyId}/status`)
+    .set(headers)
+    .send({ status: 'active' })
+    .expect(409);
+});
+
+test('platform-only subscription, audit, and support APIs reject Society Admin access', async () => {
+  const superAdmin = await createPlatformAdmin();
+  const tenantAdmin = await createUser({ email: 'ticket-admin@example.test' });
+  const society = await createSociety('support-society');
+  const otherSociety = await createSociety('support-other-society');
+  await addMembership(tenantAdmin, society);
+  const platformLogin = await login(superAdmin.email);
+  const tenantLogin = await login(tenantAdmin.email);
+  const platformHeaders = bearer(platformLogin.body.data.sessionToken);
+  const tenantHeaders = bearer(tenantLogin.body.data.sessionToken);
+
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(tenantHeaders)
+    .send({})
+    .expect(200);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/support-tickets`)
+    .set(tenantHeaders)
+    .send({
+      subject: 'Access help needed',
+      description: 'Please help reset the building access settings.',
+    })
+    .expect(201);
+  await request(app)
+    .get(`/api/v1/societies/${otherSociety._id}/support-tickets`)
+    .set(tenantHeaders)
+    .expect(404);
+
+  await request(app).get('/api/v1/platform/audit-logs').set(tenantHeaders).expect(403);
+  await request(app).get('/api/v1/platform/support-tickets').set(tenantHeaders).expect(403);
+  const tickets = await request(app)
+    .get('/api/v1/platform/support-tickets')
+    .set(platformHeaders)
+    .expect(200);
+  assert.equal(tickets.body.data.tickets.length, 1);
+  const ticketId = tickets.body.data.tickets[0].id;
+  await request(app)
+    .patch(`/api/v1/platform/support-tickets/${ticketId}`)
+    .set(tenantHeaders)
+    .send({ status: 'resolved' })
+    .expect(403);
+  await request(app)
+    .patch(`/api/v1/platform/support-tickets/${ticketId}`)
+    .set(platformHeaders)
+    .send({
+      status: 'in_progress',
+      priority: 'urgent',
+      assignedTo: String(superAdmin._id),
+    })
+    .expect(200);
+  assert.equal(
+    (await models.SupportTicket.findById(ticketId)).assignedTo.toString(),
+    String(superAdmin._id),
+  );
+  const audit = await request(app)
+    .get('/api/v1/platform/audit-logs?action=support_ticket.create')
+    .set(platformHeaders)
+    .expect(200);
+  assert.equal(audit.body.data.auditLogs.length, 1);
+  const auditExport = await request(app)
+    .get('/api/v1/platform/audit-logs/export?action=support_ticket.create')
+    .set(platformHeaders)
+    .expect(200);
+  assert.match(auditExport.headers['content-type'], /text\/csv/);
+  const ticketExport = await request(app)
+    .get('/api/v1/platform/support-tickets/export')
+    .set(platformHeaders)
+    .expect(200);
+  assert.match(ticketExport.text, /Access help needed/);
+});
+
+test('plan limits are enforced when inviting additional tenant members', async () => {
+  const superAdmin = await createPlatformAdmin();
+  const admin = await createUser({ email: 'limited-admin@example.test' });
+  const society = await createSociety('limited-society');
+  await addMembership(admin, society);
+  const platformLogin = await login(superAdmin.email);
+  const adminLogin = await login(admin.email);
+  const platformHeaders = bearer(platformLogin.body.data.sessionToken);
+  const adminHeaders = bearer(adminLogin.body.data.sessionToken);
+  const plan = await models.SubscriptionPlan.create({
+    name: 'One member',
+    code: 'one-member',
+    limits: { maxMembers: 1 },
+  });
+  await models.Subscription.create({
+    societyId: society._id,
+    planId: plan._id,
+    status: 'active',
+    limits: plan.limits,
+    configuredBy: superAdmin._id,
+  });
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/invitations`)
+    .set(adminHeaders)
+    .send({ email: 'over-limit@example.test' })
+    .expect(409);
+  await request(app)
+    .patch(`/api/v1/platform/plans/${plan._id}`)
+    .set(platformHeaders)
+    .send({ limits: { maxMembers: 2 } })
+    .expect(200);
+  assert.equal(
+    (await models.Subscription.findOne({ societyId: society._id })).limits.maxMembers,
+    2,
+  );
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/invitations`)
+    .set(adminHeaders)
+    .send({ email: 'within-limit@example.test' })
+    .expect(201);
+  const dashboard = await request(app)
+    .get('/api/v1/platform/dashboard')
+    .set(platformHeaders)
+    .expect(200);
+  assert.equal(dashboard.body.data.societies.active, 1);
+  assert.equal(dashboard.body.data.subscriptions.active, 1);
 });
 
 test('concurrent invitation acceptance requests can only consume the token once', async () => {
@@ -455,16 +714,25 @@ test('email verification is required when configured and pending admin membershi
     .send({ email: superAdmin.email, password: 'correct horse battery' })
     .expect(200);
   const headers = bearer(platformLogin.body.data.sessionToken);
-  const society = await request(localApp)
-    .post('/api/v1/platform/societies')
+  const plan = await request(localApp)
+    .post('/api/v1/platform/plans')
     .set(headers)
-    .send({ name: 'Verification Society', slug: 'verification-society' })
+    .send({ name: 'Verification Plan', code: 'verification-plan' })
+    .expect(201);
+  const registration = await request(localApp)
+    .post('/api/v1/platform/registrations')
+    .send({
+      name: 'Verification Society',
+      slug: 'verification-society',
+      contactName: 'Unverified Admin',
+      contactEmail: 'unverified-admin@example.test',
+    })
     .expect(201);
   await request(localApp)
-    .post(`/api/v1/platform/societies/${society.body.data.society.id}/invitations`)
+    .post(`/api/v1/platform/societies/${registration.body.data.registration.id}/approve`)
     .set(headers)
-    .send({ email: 'unverified-admin@example.test' })
-    .expect(201);
+    .send({ planId: plan.body.data.plan.id, trialDays: 0 })
+    .expect(200);
   const accepted = await request(localApp)
     .post('/api/v1/auth/invitations/accept')
     .send({
