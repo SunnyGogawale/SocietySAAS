@@ -7,6 +7,7 @@ const { createAuditService } = require('./services/audit.service');
 const { createAuthService } = require('./services/auth.service');
 const { createBillingService } = require('./services/billing.service');
 const { createEmailService } = require('./services/email.service');
+const { createFinanceService } = require('./services/finance.service');
 const { createHealthService } = require('./services/health.service');
 const { createMembershipService } = require('./services/membership.service');
 const { createPlatformService } = require('./services/platform.service');
@@ -14,6 +15,7 @@ const { createPropertyService } = require('./services/property.service');
 const { createSettingsService } = require('./services/settings.service');
 const { createAuthRouter } = require('./routes/auth.routes');
 const { createBillingRouter } = require('./routes/billing.routes');
+const { createFinanceRouter, createRazorpayWebhookRouter } = require('./routes/finance.routes');
 const { errorHandler } = require('./middleware/errorHandler');
 const { notFound } = require('./middleware/notFound');
 const { createRequestLogger } = require('./middleware/requestLogger');
@@ -33,6 +35,7 @@ function createApp({
   mailer: suppliedMailer,
   authService: suppliedAuthService,
   membershipService: suppliedMembershipService,
+  paymentFetch,
   healthService = createHealthService(),
 }) {
   const app = express();
@@ -51,7 +54,8 @@ function createApp({
   });
   const settingsService = createSettingsService({ models, audit });
   const propertyService = createPropertyService({ models, audit, membershipService });
-  const billingService = createBillingService({ models, audit });
+  const financeService = createFinanceService({ models, audit, config, fetchImpl: paymentFetch });
+  const billingService = createBillingService({ models, audit, finance: financeService });
   app.locals.emailVerificationRequired = config.emailVerificationRequired;
 
   app.disable('x-powered-by');
@@ -68,6 +72,7 @@ function createApp({
     }),
   );
   app.use(cookieParser());
+  app.use('/api/v1/webhooks', createRazorpayWebhookRouter({ financeService }));
   app.use(express.json({ limit: config.requestBodyLimit }));
   app.use(express.urlencoded({ extended: false, limit: config.requestBodyLimit }));
   app.use('/api/v1', createHealthRouter(healthService));
@@ -76,7 +81,8 @@ function createApp({
   app.use('/api/v1', createMembershipRouter({ config, models, audit, membershipService }));
   app.use('/api/v1', createSettingsRouter({ models, audit, settingsService }));
   app.use('/api/v1', createPropertyRouter({ models, audit, propertyService }));
-  app.use('/api/v1', createBillingRouter({ models, audit, billingService }));
+  app.use('/api/v1', createFinanceRouter({ models, audit, financeService, billingService }));
+  app.use('/api/v1', createBillingRouter({ models, audit, billingService, financeService }));
   app.use(notFound);
   app.use(errorHandler(logger));
 

@@ -1,6 +1,6 @@
 const { sendSuccess } = require('../utils/apiResponse');
 
-function createBillingController({ billingService }) {
+function createBillingController({ billingService, financeService }) {
   return {
     async previewRun(request, response) {
       return sendSuccess(
@@ -170,9 +170,10 @@ function createBillingController({ billingService }) {
         request,
         response,
         {
-          receipt: await billingService.createReceipt({
+          receipt: await financeService.recordManualReceipt({
             society: request.society,
             actor: request.auth.user,
+            billingService,
             data: request.validated.body,
             request,
           }),

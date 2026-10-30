@@ -8,6 +8,12 @@ const receiptSchema = new mongoose.Schema(
       required: true,
       immutable: true,
     },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment',
+      default: null,
+      immutable: true,
+    },
     receiptNumber: { type: String, required: true },
     payerMembershipId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -43,5 +49,9 @@ const receiptSchema = new mongoose.Schema(
 receiptSchema.index({ societyId: 1, receiptNumber: 1 }, { unique: true });
 receiptSchema.index({ societyId: 1, flatId: 1, receivedAt: -1 });
 receiptSchema.index({ societyId: 1, 'allocations.billId': 1 });
+receiptSchema.index(
+  { societyId: 1, paymentId: 1 },
+  { unique: true, partialFilterExpression: { paymentId: { $type: 'objectId' } } },
+);
 
 module.exports = mongoose.models.Receipt || mongoose.model('Receipt', receiptSchema);

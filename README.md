@@ -3,21 +3,21 @@
 JavaScript monorepo for the Society Management SaaS, with separate web, mobile, and
 backend applications. The platform currently includes authentication, the Super Admin
 tenant/subscription/support console, Society Admin configuration, property and
-resident management, and maintenance billing/receivables for Society Admins and
-House Owners.
+resident management, maintenance billing, and initial payments/accounting for
+Society Admins and House Owners.
 
-The product specification is in [`docs/`](./docs/). Decisions that affect financial
-rules, payment processing, retention, and other not-yet-built modules remain open;
-this implementation does not assume those policies.
+The product specification and approved finance decisions are in [`docs/`](./docs/).
+Jurisdictional compliance, tax treatment, fiscal close, data retention, attachment
+storage, and production transaction/recovery policy remain unresolved.
 
 ## Applications
 
-| Workspace                    | Stack                          | Purpose                                                                      |
-| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------- |
-| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and Society Admin property/settings/billing workspaces   |
-| `@societysaas/mobile`        | React Native, Expo, JavaScript | House Owner property, profile, settings, and bill views                      |
-| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, property, and billing models |
-| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                                |
+| Workspace                    | Stack                          | Purpose                                                                                   |
+| ---------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and Society Admin property, settings, billing, and finance workspaces |
+| `@societysaas/mobile`        | React Native, Expo, JavaScript | House Owner property, profile, bills, online payment links, and receipt history           |
+| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, property, billing, payments, and ledger   |
+| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                                             |
 
 ## Prerequisites
 
@@ -47,6 +47,15 @@ examples contain placeholders only. Never commit `.env` files or real credential
 Configure SMTP values in `apps/backend/.env` before issuing invitations or enabling
 email verification. A reset request stays deliberately generic when SMTP is not
 configured; no reset email is sent in that case.
+
+Online payments require `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` in the backend
+environment. Generate a base64-encoded 32-byte key (for example,
+`openssl rand -base64 32`) and store it as a managed secret; never commit it or
+reuse a society's Razorpay credentials as this key. Each Society Admin configures
+the society's Razorpay key ID, key secret, and webhook signing secret in the finance
+workspace. Register the displayed society webhook endpoint in that society's own
+Razorpay account. Provider-hosted checkout exposes only methods enabled by Razorpay
+for that account.
 
 ## API foundation
 
@@ -132,8 +141,24 @@ revalidates that membership and the active society; changing the URL, request
 body, or query parameter cannot change authorization scope. Revoked memberships
 stop authorizing the next request.
 
-No sample account, tenant data, or seeded database is included. Society accounting,
-maintenance invoices/billing, and payment processing endpoints are not implemented.
+No sample account, tenant data, or seeded database is included; create a Super Admin
+and provision a society before configuring its finance workspace.
+
+## Payments and accounting
+
+The finance workspace supports society-specific Razorpay configuration, payment
+history, refund approvals, vendor and expense workflows, a chart of accounts,
+double-entry journals, gateway settlements, CSV statement import/matching, and
+period summary reports. House Owners can create partial or full payment links for
+their own outstanding bills using provider-hosted checkout. A browser redirect does
+not mark a payment paid; only a verified, idempotent provider callback does.
+
+Society finance is separate from SaaS subscription billing. Posted journals are
+immutable and corrections use linked reversals. Current related writes span multiple
+MongoDB documents without a multi-document transaction; before production posting,
+deploy on transaction-capable MongoDB or implement durable recovery/reconciliation.
+Expense supporting documents currently accept a reference only; private upload and
+retention are not configured.
 
 ## Scripts
 
@@ -211,7 +236,7 @@ do not grant access to tenant records.
 - Health endpoints contain no user or tenant data. The readiness endpoint is
   intended for dependency-aware orchestration.
 - `docs/IMPLEMENTATION_ROADMAP.md` defines feature acceptance criteria and
-  dependencies. Financial and maintenance billing modules remain out of scope.
+  dependencies, including remaining financial production gates.
 
 ## Validation and dependency notes
 

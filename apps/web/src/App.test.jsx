@@ -295,4 +295,88 @@ describe('application shell', () => {
       expect.objectContaining({ credentials: 'include' }),
     );
   });
+
+  it('lets a Society Admin configure tenant-scoped Razorpay credentials', async () => {
+    const societyId = '507f1f77bcf86cd799439011';
+    const fetchMock = vi.fn().mockImplementation(async (url, options = {}) => {
+      const path = String(url);
+      let data = {};
+      if (path.includes('/auth/me')) {
+        data = {
+          user: {
+            id: 'society-admin',
+            email: 'admin@example.test',
+            displayName: 'Society Admin',
+            platformRole: 'user',
+          },
+          societies: [{ id: societyId, name: 'North Gardens', role: 'society_admin' }],
+          activeSociety: { id: societyId, name: 'North Gardens', role: 'society_admin' },
+          csrfToken: 'csrf-token',
+        };
+      } else if (path.endsWith('/finance/gateway') && options.method === 'PUT') {
+        data = { configured: true, keyId: 'rzp_test_north', webhookUrl: '/webhook' };
+      } else if (path.endsWith('/finance/gateway')) {
+        data = { configured: false, provider: 'razorpay', webhookUrl: '/webhook' };
+      } else if (path.endsWith('/finance/accounts')) {
+        data = { accounts: [] };
+      } else if (path.endsWith('/finance/vendors')) {
+        data = { vendors: [] };
+      } else if (path.endsWith('/finance/expenses')) {
+        data = { expenses: [] };
+      } else if (path.endsWith('/finance/payments')) {
+        data = { payments: [] };
+      } else if (path.includes('/finance/reports/summary')) {
+        data = {
+          currency: 'INR',
+          billIssuedMinor: 0,
+          collectedMinor: 0,
+          refundedMinor: 0,
+          netCollectionsMinor: 0,
+          expensesPostedMinor: 0,
+          duesMinor: 0,
+        };
+      } else if (path.includes('/finance/journals')) {
+        data = { journals: [] };
+      } else if (path.includes('/finance/reconciliation/lines')) {
+        data = { lines: [], summary: { matchedCount: 0, transactionCount: 0 } };
+      }
+      return new Response(JSON.stringify({ success: true, data, requestId: 'finance' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('heading', { name: 'Overview' });
+    fireEvent.click(screen.getByRole('link', { name: 'Payments and accounting' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Payments and accounting' }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Razorpay key ID'), {
+      target: { value: 'rzp_test_north' },
+    });
+    fireEvent.change(screen.getByLabelText('Razorpay key secret'), {
+      target: { value: 'test-key-secret-123' },
+    });
+    fireEvent.change(screen.getByLabelText('Webhook signing secret'), {
+      target: { value: 'test-webhook-secret-123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save credentials' }));
+
+    expect(await screen.findByText('Razorpay credentials saved securely.')).toBeInTheDocument();
+    const saveRequest = fetchMock.mock.calls.find(
+      ([url, options]) => String(url).endsWith('/finance/gateway') && options.method === 'PUT',
+    );
+    expect(JSON.parse(saveRequest[1].body)).toEqual({
+      keyId: 'rzp_test_north',
+      keySecret: 'test-key-secret-123',
+      webhookSecret: 'test-webhook-secret-123',
+    });
+    expect(screen.queryByDisplayValue('test-key-secret-123')).not.toBeInTheDocument();
+  });
 });

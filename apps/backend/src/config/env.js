@@ -33,6 +33,7 @@ const environmentSchema = z.object({
   SMTP_PASSWORD: z.string().default(''),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(86400000).default(900000),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000).default(10),
+  PAYMENT_CREDENTIAL_ENCRYPTION_KEY: z.string().default(''),
 });
 
 function loadConfig(environment = process.env) {
@@ -82,6 +83,7 @@ function loadConfig(environment = process.env) {
       : null,
     authRateLimitWindowMs: result.data.AUTH_RATE_LIMIT_WINDOW_MS,
     authRateLimitMax: result.data.AUTH_RATE_LIMIT_MAX,
+    paymentCredentialEncryptionKey: result.data.PAYMENT_CREDENTIAL_ENCRYPTION_KEY,
   };
 }
 

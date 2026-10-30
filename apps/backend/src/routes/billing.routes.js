@@ -7,9 +7,9 @@ const { requireSocietyContext } = require('../middleware/requireSocietyContext')
 const { validateRequest } = require('../middleware/validateRequest');
 const schemas = require('../validators/billing.validators');
 
-function createBillingRouter({ models, audit, billingService }) {
+function createBillingRouter({ models, audit, billingService, financeService }) {
   const router = express.Router();
-  const controller = createBillingController({ billingService });
+  const controller = createBillingController({ billingService, financeService });
   const authenticate = createAuthenticate({ models, audit });
   const societyContext = requireSocietyContext({ models, audit });
   const root = '/societies/:societyId/billing';

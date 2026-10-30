@@ -105,21 +105,33 @@ Ticket management does not grant platform operators implicit access to the tenan
 4. Society Admin reviews preview totals and skipped flats, approves, then issues the run. Issue assigns invoice numbers and creates in-app bill-issued reminders for eligible owners. No external email/SMS/push is sent.
 5. Ad hoc charges and reconciled opening balances create draft bills and use the same review/approval/issue flow. Opening-balance import requires a source reference and exact match between row totals and the verified source total.
 6. To correct an unpaid issued bill, Society Admin cancels it with a reason; cancellation is denied if any receipt allocation or issued adjustment exists. An explicit revision creates a new immutable bill and keeps the original cancellation record. Otherwise corrections use linked credit/debit notes with reason, approval, and issue. A credit note first reduces its source invoice; any excess is automatically allocated FIFO to later issued bills for that flat whose owner snapshot intersects the credit note's owner snapshot.
-7. Society Admin records a manual receipt against an active owner and flat. Partial payment is allowed. The server applies it to the oldest due eligible bills first, or accepts an explicit audited allocation. Unapplied receipt credit is kept and automatically allocated to later issued bills for that flat and payer.
+7. Society Admin records a manual receipt against an active owner and flat. Partial payment is allowed. The server applies it to the oldest due eligible bills first, or accepts an explicit audited allocation. Unapplied receipt credit is kept and automatically allocated to later issued bills for that flat and payer. A House Owner may instead create a provider-hosted online payment for an eligible bill; only a verified provider callback establishes capture.
 8. Monthly late-fee assessment uses the bill's saved rule snapshot, only overdue principal after due/grace date, excludes previous fees/penalties, rounds half up, and enforces the cumulative cap. An idempotency key prevents more than one assessment per bill and calendar month.
 9. Owners can read only issued bills whose ownership-period snapshot includes their active membership. Bill details show items, payment history, adjustments, due amount, and flat account balance. PDF downloads are authorized and audited.
 10. Society Admin can create in-app due/overdue reminders and view ageing buckets. A scheduler, external delivery channels, full general ledger, expenses, and payment-provider settlement are not part of this phase.
 
 **Bill state transitions:** `draft → in_review → approved → issued`; unpaid bills may be cancelled with approval and reason; an explicit revision is a new draft with a new revision number. Issued bill items and rule snapshots are immutable.
 
-## 8. Expenses and reports (FIN-03/04, REP-01)
+## 8. Payments and refunds (FIN-05)
 
-1. Authorized operator enters expense, date, payee/category, amount/currency, evidence reference if enabled.
-2. Draft expense requires review/posting according to approved policy.
-3. Reversal/correction links to original and records reason/actor.
-4. Report selects tenant, period/as-of time, currency, and filters; server enforces permission and includes defined statuses only.
-5. Report reconciles to ledger-derived totals and labels scope, generation time, and currency.
-6. Export is permission checked, rate/size bounded, and audited.
+1. Each society's Society Admin configures its own Razorpay key ID, key secret, and webhook secret. The backend encrypts secret values at rest; clients never receive them. The configured webhook URL is registered in the society's Razorpay account.
+2. A House Owner selects an eligible issued bill, enters a positive amount no greater than the outstanding amount, and requests a payment link. The server binds the payment to the authenticated membership, society, flat, and bill; an idempotency key prevents duplicate requests.
+3. Razorpay-hosted checkout offers the methods enabled for that merchant account. Redirects are informational only; payment remains pending until the server verifies the webhook signature, event id, provider payment record, reference, amount, and currency.
+4. A verified capture creates/links the receipt and bill allocation, posts Dr Gateway Clearing / Cr Accounts Receivable, and exposes payment status and receipt information to authorized users. Duplicate events do not duplicate receipt, allocation, or journal records. Failed or mismatched callbacks never post a collection.
+5. Society Admin submits a refund request with amount and reason; only an approved request is sent to the provider. The status remains pending/approved until the provider confirms processed or failed. A processed refund reverses the original collection and its receivable allocation; the original payment and receipt are retained. Failed refunds do not post a reversal.
+6. Manual receipts remain supported for payments settled outside the provider. The UI and report distinguish these from provider-confirmed collections.
+
+## 9. Expenses, double-entry accounting, and reconciliation (FIN-03/06)
+
+1. Society Admin creates a vendor and submits an expense with date, category/account, amount, currency, description, reference, and optional authorized document reference. Supporting file storage is not configured.
+2. The configured expense approval count is enforced. Approval posts Dr Expense / Cr Accounts Payable. Expense posting does not also pay the vendor.
+3. Society Admin records a separate full or partial vendor payment. The server rejects amounts above the outstanding payable and posts Dr Accounts Payable / Cr Bank or Cash. The payable is cleared only when paid in full.
+4. A Society Admin can reverse a vendor payment with a reason; the system posts the inverse journal, restores the payable, and rejects a duplicate reversal. A vendor payment must be reversed before its posted expense can be reversed. Reversals link to the original journal; posted records are never deleted or edited.
+5. The tenant chart of accounts uses integer minor units and currency-specific precision. Every journal entry MUST have equal debit and credit totals. Bill issue posts Dr Accounts Receivable / Cr Maintenance Income; manual or verified provider collection posts Dr Bank or Gateway Clearing / Cr Accounts Receivable; gateway settlement posts Dr Bank / Cr Gateway Clearing.
+6. Society Admin may record a Razorpay settlement using a stable provider reference, bank account, amount, and settlement date. Repeating the same reference/details returns the existing journal; conflicting reuse is rejected.
+7. Bank statement import requires mapped CSV columns for date, description, reference, debit, credit, and balance. Duplicate file hashes are rejected. Each match is checked against a journal line with the same tenant, bank account, opposite bank-statement side, and exact minor-unit amount; unmatched rows remain visible for review.
+8. Finance reports select a date range and show currency, issued bill totals, captured collections, refunds, net collections, posted expenses, dues, and ledger account totals. Tenant authorization applies to every source query and report.
+9. SaaS subscription revenue is not part of a society's books. The current MongoDB posting flow is not atomic across all related documents; production use requires transaction-capable MongoDB or durable recovery and reconciliation for partially persisted writes.
 
 ## 9. Notifications (NOTIF-01)
 

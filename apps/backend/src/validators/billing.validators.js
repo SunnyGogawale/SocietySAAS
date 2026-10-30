@@ -106,6 +106,7 @@ const receiptSchema = z
   .strictObject({
     flatId: objectId,
     payerMembershipId: objectId,
+    idempotencyKey: z.string().trim().min(16).max(100).optional(),
     amountMinor,
     receivedAt: z.iso.datetime().optional(),
     method: z.enum(['cash', 'bank_transfer', 'cheque', 'other']),

@@ -93,7 +93,7 @@ function sumSafe(values) {
   return Number(sum);
 }
 
-function createBillingService({ models, audit, clock = () => new Date() }) {
+function createBillingService({ models, audit, finance, clock = () => new Date() }) {
   const {
     BillItem,
     BillingReminder,
@@ -101,6 +101,7 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
     ChargeRules,
     CreditNote,
     Flat,
+    PaymentAllocation,
     MaintenanceBill,
     Ownership,
     Receipt,
@@ -183,13 +184,18 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
   async function getBillBalances(bills) {
     if (!bills.length) return new Map();
     const ids = bills.map(({ _id }) => _id);
-    const [notes, receipts] = await Promise.all([
+    const [notes, receipts, reversals] = await Promise.all([
       CreditNote.find({
         societyId: bills[0].societyId,
         status: 'issued',
         $or: [{ billId: { $in: ids } }, { 'allocations.billId': { $in: ids } }],
       }).lean(),
       Receipt.find({ societyId: bills[0].societyId, 'allocations.billId': { $in: ids } }).lean(),
+      PaymentAllocation.find({
+        societyId: bills[0].societyId,
+        billId: { $in: ids },
+        kind: { $in: ['refund', 'reversal'] },
+      }).lean(),
     ]);
     const noteTotals = new Map();
     const principalNoteTotals = new Map();
@@ -216,11 +222,15 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
         paidByBill.set(key, (paidByBill.get(key) ?? 0) + allocation.amountMinor);
       }
     }
+    for (const reversal of reversals) {
+      const key = String(reversal.billId);
+      paidByBill.set(key, (paidByBill.get(key) ?? 0) - reversal.amountMinor);
+    }
     return new Map(
       bills.map((bill) => {
         const noteTotal = noteTotals.get(String(bill._id)) ?? 0;
         const principalAdjustments = principalNoteTotals.get(String(bill._id)) ?? 0;
-        const paid = paidByBill.get(String(bill._id)) ?? 0;
+        const paid = Math.max(0, paidByBill.get(String(bill._id)) ?? 0);
         const totalMinor = Math.max(0, bill.totalMinor + noteTotal);
         const outstandingMinor = Math.max(0, totalMinor - paid);
         const principalMinor = Math.max(0, bill.totalMinor + principalAdjustments - paid);
@@ -331,6 +341,13 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
           },
         );
         if (!result.modifiedCount) break;
+        await finance?.recordReceiptAllocation({
+          society,
+          actor,
+          receipt,
+          billId: target._id,
+          amountMinor: applied,
+        });
         creditRemaining -= applied;
         appliedMinor += applied;
         balances.set(String(target._id), {
@@ -747,6 +764,7 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
       }
       await Promise.all(bills.map((bill) => bill.save()));
       for (const bill of bills) {
+        await finance?.postBillIssue({ society, actor, bill });
         await applyUnappliedCreditsToBill({ society, bill, actor, request });
         for (const membershipId of bill.ownerMembershipIds) {
           await BillingReminder.updateOne(
@@ -1061,7 +1079,10 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
       }
     }
     await bill.save();
-    if (action === 'issue') await applyUnappliedCreditsToBill({ society, bill, actor, request });
+    if (action === 'issue') {
+      await finance?.postBillIssue({ society, actor, bill });
+      await applyUnappliedCreditsToBill({ society, bill, actor, request });
+    }
     await audit.record({
       actorId: actor._id,
       societyId: society._id,
@@ -1276,6 +1297,7 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
       }
     }
     await note.save();
+    if (action === 'issue') await finance?.postCreditNote({ society, actor, note });
     await audit.record({
       actorId: actor._id,
       societyId: society._id,
@@ -1638,6 +1660,10 @@ function createBillingService({ models, audit, clock = () => new Date() }) {
         { upsert: true },
       );
       created += result.upsertedCount ?? 0;
+      if (result.upsertedCount) {
+        const note = await CreditNote.findOne({ societyId: society._id, accrualKey }).lean();
+        if (note) await finance?.postCreditNote({ society, actor, note });
+      }
     }
     await audit.record({
       actorId: actor._id,

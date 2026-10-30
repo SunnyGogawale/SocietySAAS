@@ -6,6 +6,7 @@ import AccountPage from './pages/AccountPage.jsx';
 import ActivityPage from './pages/ActivityPage.jsx';
 import BillingPage from './pages/BillingPage.jsx';
 import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx';
+import FinancePage from './pages/FinancePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import OverviewPage from './pages/OverviewPage.jsx';
 import PlatformAuditPage from './pages/PlatformAuditPage.jsx';
@@ -60,6 +61,9 @@ function AppRoutes() {
               <Route path="settings" element={<SocietySettingsPage />} />
               {activeSociety?.role === 'society_admin' && (
                 <Route path="billing" element={<BillingPage />} />
+              )}
+              {activeSociety?.role === 'society_admin' && (
+                <Route path="finance" element={<FinancePage />} />
               )}
               {user?.platformRole !== 'super_admin' && (
                 <Route

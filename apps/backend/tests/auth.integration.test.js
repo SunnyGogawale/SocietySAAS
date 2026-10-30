@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const test = require('node:test');
 const mongoose = require('mongoose');
 const pino = require('pino');
@@ -28,7 +29,55 @@ const config = {
   authRateLimitWindowMs: 60000,
   authRateLimitMax: 100,
   logLevel: 'silent',
+  paymentCredentialEncryptionKey: Buffer.from('test-only-payment-key-32-bytes!!').toString(
+    'base64',
+  ),
 };
+let providerLinkSequence = 0;
+const providerPayments = new Map();
+async function paymentFetch(url, options = {}) {
+  const pathname = new URL(url).pathname;
+  if (pathname === '/v1/payment_links' && options.method === 'POST') {
+    providerLinkSequence += 1;
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          id: `plink_test_${providerLinkSequence}`,
+          short_url: `https://rzp.io/i/test-${providerLinkSequence}`,
+        };
+      },
+    };
+  }
+  const paymentMatch = pathname.match(/^\/v1\/payments\/([^/]+)$/);
+  if (paymentMatch && options.method !== 'POST') {
+    const payment = providerPayments.get(paymentMatch[1]);
+    return {
+      ok: Boolean(payment),
+      status: payment ? 200 : 404,
+      async json() {
+        return payment ?? {};
+      },
+    };
+  }
+  if (/^\/v1\/payments\/[^/]+\/refund$/.test(pathname) && options.method === 'POST') {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { id: `rfnd_test_${providerPayments.size}_${Date.now()}`, status: 'pending' };
+      },
+    };
+  }
+  return {
+    ok: false,
+    status: 404,
+    async json() {
+      return {};
+    },
+  };
+}
 const logger = pino({ enabled: false });
 const mailer = {
   available: true,
@@ -50,7 +99,7 @@ test.before(async () => {
   const uri = await mongo.getUri();
   await mongoose.connect(uri);
   await Promise.all(Object.values(models).map((model) => model.init()));
-  app = createApp({ config: { ...config, mongoUri: uri }, logger, models, mailer });
+  app = createApp({ config: { ...config, mongoUri: uri }, logger, models, mailer, paymentFetch });
 });
 
 test.beforeEach(async () => {
@@ -1253,7 +1302,7 @@ test('property imports retain row errors in tenant-scoped downloadable reports',
     .send({})
     .expect(200);
 
-  const imported = await request(app)
+  const importedResponse = await request(app)
     .post(`/api/v1/societies/${society._id}/property-imports`)
     .set(headers)
     .send({
@@ -1270,8 +1319,9 @@ test('property imports retain row errors in tenant-scoped downloadable reports',
         },
         { buildingCode: '', floorNumber: 'invalid' },
       ],
-    })
-    .expect(201);
+    });
+  assert.equal(importedResponse.status, 201, JSON.stringify(importedResponse.body));
+  const imported = importedResponse;
   assert.equal(imported.body.data.createdCount, 1);
   assert.equal(imported.body.data.errorCount, 1);
   const report = await request(app).get(imported.body.data.errorReportUrl).set(headers).expect(200);
@@ -1323,6 +1373,7 @@ test('maintenance billing prorates immutably, allocates FIFO, scopes owners, ass
     name: 'Billing tower',
     code: 'BT',
   });
+
   const floor = await models.Floor.create({
     societyId: society._id,
     buildingId: building._id,
@@ -1692,5 +1743,488 @@ test('maintenance billing prorates immutably, allocates FIFO, scopes owners, ass
       action: 'billing.opening_balance.import',
     }),
     1,
+  );
+});
+
+test('Razorpay callbacks, refunds, double-entry finance, and bank reconciliation are verified and idempotent', async () => {
+  const admin = await createUser({ email: 'finance-admin@example.test' });
+  const owner = await createUser({ email: 'finance-owner@example.test' });
+  const society = await createSociety('finance-society');
+  await addMembership(admin, society);
+  const ownerMembership = await addMembership(owner, society, 'house_owner');
+  await models.SocietySettings.create({ societyId: society._id, currency: 'INR' });
+  const adminHeaders = bearer((await login(admin.email)).body.data.sessionToken);
+  const ownerHeaders = bearer((await login(owner.email)).body.data.sessionToken);
+  for (const [headers] of [[adminHeaders], [ownerHeaders]]) {
+    await request(app)
+      .post(`/api/v1/auth/societies/${society._id}/select`)
+      .set(headers)
+      .send({})
+      .expect(200);
+  }
+
+  const building = await models.Building.create({
+    societyId: society._id,
+    name: 'Finance Tower',
+    code: 'FT',
+  });
+  const floor = await models.Floor.create({
+    societyId: society._id,
+    buildingId: building._id,
+    floorNumber: 1,
+  });
+  const flat = await models.Flat.create({
+    societyId: society._id,
+    buildingId: building._id,
+    floorId: floor._id,
+    flatNumber: 'F-1',
+    area: 80,
+    areaUnit: 'square_metre',
+    propertyType: 'apartment',
+  });
+  await models.Ownership.create({
+    societyId: society._id,
+    flatId: flat._id,
+    membershipId: ownerMembership._id,
+    ownershipType: 'owner',
+    status: 'active',
+    startsAt: new Date('2026-01-01T00:00:00.000Z'),
+    createdBy: admin._id,
+  });
+  const bill = await models.MaintenanceBill.create({
+    societyId: society._id,
+    flatId: flat._id,
+    periodStart: new Date('2026-10-01T00:00:00.000Z'),
+    periodEnd: new Date('2026-10-31T00:00:00.000Z'),
+    dueDate: new Date('2026-10-10T00:00:00.000Z'),
+    revision: 1,
+    source: 'recurring',
+    status: 'approved',
+    invoiceNumber: 'INV-FINANCE-001',
+    currency: 'INR',
+    calculationSnapshot: {
+      flatArea: 80,
+      flatAreaUnit: 'square_metre',
+      ownershipDays: 31,
+      periodDays: 31,
+      ownerMembershipIds: [ownerMembership._id],
+      chargeRules: {},
+    },
+    ownerMembershipIds: [ownerMembership._id],
+    subtotalMinor: 1000,
+    discountMinor: 0,
+    totalMinor: 1000,
+    createdBy: admin._id,
+    issuedBy: admin._id,
+    issuedAt: new Date(),
+  });
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/bills/${bill._id}/issue`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+
+  const financeRoot = `/api/v1/societies/${society._id}/finance`;
+  const gateway = await request(app)
+    .put(`${financeRoot}/gateway`)
+    .set(adminHeaders)
+    .send({
+      keyId: 'rzp_test_finance',
+      keySecret: 'test-razorpay-key-secret',
+      webhookSecret: 'test-webhook-secret',
+    })
+    .expect(200);
+  assert.equal(gateway.body.data.configured, true);
+  assert.equal(JSON.stringify(gateway.body).includes('test-razorpay-key-secret'), false);
+  assert.equal(JSON.stringify(gateway.body).includes('test-webhook-secret'), false);
+  assert.equal(
+    (
+      await models.PaymentGatewayAccount.findOne({ societyId: society._id })
+        .select('+encryptedKeySecret')
+        .lean()
+    ).encryptedKeySecret.includes('test-razorpay-key-secret'),
+    false,
+  );
+
+  const createOnlinePayment = (amountMinor, idempotencyKey) =>
+    request(app)
+      .post(`${financeRoot}/payments`)
+      .set(ownerHeaders)
+      .send({ billId: String(bill._id), amountMinor, idempotencyKey });
+  const capturedOrder = await createOnlinePayment(400, 'owner-payment-capture-0001').expect(201);
+  const capturedPayment = capturedOrder.body.data.payment;
+  const repeatedOrder = await createOnlinePayment(400, 'owner-payment-capture-0001').expect(201);
+  assert.equal(repeatedOrder.body.data.payment.id, capturedPayment.id);
+  assert.match(capturedOrder.body.data.shortUrl, /^https:\/\/rzp\.io\//);
+  assert.equal(capturedOrder.body.data.methodAvailability.includes('UPI'), true);
+  providerPayments.set('pay_finance_captured', {
+    id: 'pay_finance_captured',
+    status: 'captured',
+    amount: 400,
+    currency: 'INR',
+    payment_link_id: capturedPayment.providerReference,
+    method: 'upi',
+  });
+  const webhook = (eventId, event) => {
+    const raw = Buffer.from(JSON.stringify(event));
+    const signature = crypto.createHmac('sha256', 'test-webhook-secret').update(raw).digest('hex');
+    return request(app)
+      .post(`/api/v1/webhooks/razorpay/${society._id}`)
+      .set('content-type', 'application/json')
+      .set('x-razorpay-signature', signature)
+      .set('x-razorpay-event-id', eventId)
+      .send(raw.toString('utf8'));
+  };
+  await request(app)
+    .post(`/api/v1/webhooks/razorpay/${society._id}`)
+    .set('content-type', 'application/json')
+    .set('x-razorpay-signature', 'invalid-signature')
+    .set('x-razorpay-event-id', 'evt_invalid_signature_001')
+    .send(JSON.stringify({ event: 'payment.captured' }))
+    .expect(401);
+  const mismatchedOrder = await createOnlinePayment(100, 'owner-payment-mismatch-0001').expect(201);
+  const mismatchedPayment = mismatchedOrder.body.data.payment;
+  providerPayments.set('pay_finance_mismatch', {
+    id: 'pay_finance_mismatch',
+    status: 'captured',
+    amount: 101,
+    currency: 'INR',
+    payment_link_id: mismatchedPayment.providerReference,
+    method: 'card',
+  });
+  await webhook('evt_amount_mismatch_001', {
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_finance_mismatch',
+          payment_link_id: mismatchedPayment.providerReference,
+          amount: 100,
+          currency: 'INR',
+          method: 'card',
+        },
+      },
+    },
+  }).expect(422);
+  assert.equal((await models.Payment.findById(mismatchedPayment.id).lean()).status, 'pending');
+  await request(app).get(`${financeRoot}/accounts`).set(ownerHeaders).expect(403);
+  const unrelatedSociety = await createSociety('finance-unrelated-society');
+  await request(app)
+    .get(`/api/v1/societies/${unrelatedSociety._id}/finance/accounts`)
+    .set(adminHeaders)
+    .expect(404);
+
+  const capturedEvent = {
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_finance_captured',
+          payment_link_id: capturedPayment.providerReference,
+          amount: 400,
+          currency: 'INR',
+          method: 'upi',
+        },
+      },
+    },
+  };
+  await webhook('evt_capture_001', capturedEvent).expect(200);
+  const duplicate = await webhook('evt_capture_001', capturedEvent).expect(200);
+  assert.equal(duplicate.body.duplicate, true);
+  const savedCapture = await models.Payment.findById(capturedPayment.id).lean();
+  assert.equal(savedCapture.status, 'captured');
+  assert.equal(
+    await models.Payment.countDocuments({
+      societyId: society._id,
+      providerPaymentId: 'pay_finance_captured',
+    }),
+    1,
+  );
+  assert.equal(
+    await models.Receipt.countDocuments({ societyId: society._id, paymentId: capturedPayment.id }),
+    1,
+  );
+  assert.equal(
+    await models.JournalEntry.countDocuments({
+      societyId: society._id,
+      sourceType: 'receipt',
+      sourceId: savedCapture.receiptId,
+    }),
+    1,
+  );
+
+  const failedOrder = await createOnlinePayment(100, 'owner-payment-failed-0001').expect(201);
+  const failedPayment = failedOrder.body.data.payment;
+  providerPayments.set('pay_finance_failed', {
+    id: 'pay_finance_failed',
+    status: 'failed',
+    amount: 100,
+    currency: 'INR',
+    payment_link_id: failedPayment.providerReference,
+    method: 'card',
+    error_code: 'BAD_REQUEST_ERROR',
+    error_description: 'Payment declined',
+  });
+  await webhook('evt_failed_001', {
+    event: 'payment.failed',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_finance_failed',
+          payment_link_id: failedPayment.providerReference,
+          amount: 100,
+          currency: 'INR',
+          method: 'card',
+        },
+      },
+    },
+  }).expect(200);
+  const failedSaved = await models.Payment.findById(failedPayment.id).lean();
+  assert.equal(failedSaved.status, 'failed');
+  assert.equal(failedSaved.receiptId, null);
+
+  const failedRefund = await request(app)
+    .post(`${financeRoot}/payments/${capturedPayment.id}/refunds`)
+    .set(adminHeaders)
+    .send({ amountMinor: 100, reason: 'Record failed provider refund for test' })
+    .expect(201);
+  const failedRefundId = String(failedRefund.body.data.payment.refunds[0]._id);
+  await request(app)
+    .post(`${financeRoot}/payments/${capturedPayment.id}/refunds/${failedRefundId}/approve`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  const firstStoredPayment = await models.Payment.findById(capturedPayment.id).lean();
+  const firstRefund = firstStoredPayment.refunds[0];
+  await webhook('evt_refund_failed_001', {
+    event: 'refund.failed',
+    payload: {
+      refund: {
+        entity: {
+          id: firstRefund.providerRefundId,
+          payment_id: 'pay_finance_captured',
+          amount: 100,
+          status: 'failed',
+        },
+      },
+    },
+  }).expect(200);
+  assert.equal(
+    (await models.Payment.findById(capturedPayment.id).lean()).refunds[0].status,
+    'failed',
+  );
+
+  const secondRefund = await request(app)
+    .post(`${financeRoot}/payments/${capturedPayment.id}/refunds`)
+    .set(adminHeaders)
+    .send({ amountMinor: 200, reason: 'Approved partial payment reversal' })
+    .expect(201);
+  const secondRefundId = String(secondRefund.body.data.payment.refunds[1]._id);
+  await request(app)
+    .post(`${financeRoot}/payments/${capturedPayment.id}/refunds/${secondRefundId}/approve`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  const paidRecord = await models.Payment.findById(capturedPayment.id).lean();
+  const approvedRefund = paidRecord.refunds.find(({ _id }) => String(_id) === secondRefundId);
+  await webhook('evt_refund_processed_001', {
+    event: 'refund.processed',
+    payload: {
+      refund: {
+        entity: {
+          id: approvedRefund.providerRefundId,
+          payment_id: 'pay_finance_captured',
+          amount: 200,
+          status: 'processed',
+        },
+      },
+    },
+  }).expect(200);
+  assert.equal((await models.Payment.findById(capturedPayment.id).lean()).refundedMinor, 200);
+  const ownerBill = await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${bill._id}`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(ownerBill.body.data.outstandingMinor, 800);
+
+  const accounts = (await request(app).get(`${financeRoot}/accounts`).set(adminHeaders).expect(200))
+    .body.data.accounts;
+  const bankAccount = accounts.find(({ systemKey }) => systemKey === 'bank');
+  const expenseAccount = accounts.find(({ systemKey }) => systemKey === 'general_expense');
+  const vendor = await request(app)
+    .post(`${financeRoot}/vendors`)
+    .set(adminHeaders)
+    .send({ name: 'Verified maintenance vendor', phone: '+911234567890' })
+    .expect(201);
+  const expense = await request(app)
+    .post(`${financeRoot}/expenses`)
+    .set(adminHeaders)
+    .send({
+      vendorId: vendor.body.data.vendor._id,
+      expenseAccountId: expenseAccount._id,
+      amountMinor: 500,
+      currency: 'INR',
+      incurredAt: new Date().toISOString(),
+      description: 'Pump repair',
+      reference: 'INV-PUMP-01',
+      supportingDocument: 'invoice-ref:INV-PUMP-01',
+    })
+    .expect(201);
+  assert.equal(expense.body.data.expense.status, 'pending_approval');
+  const approvedExpense = await request(app)
+    .post(`${financeRoot}/expenses/${expense.body.data.expense._id}/approve`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  assert.equal(approvedExpense.body.data.expense.status, 'posted');
+  const expenseJournal = await models.JournalEntry.findById(
+    approvedExpense.body.data.expense.journalEntryId,
+  ).lean();
+  assert.equal(expenseJournal.debitTotalMinor, expenseJournal.creditTotalMinor);
+  const paidExpense = await request(app)
+    .post(`${financeRoot}/expenses/${expense.body.data.expense._id}/payments`)
+    .set(adminHeaders)
+    .send({ amountMinor: 100, method: 'bank_transfer', reference: 'BANK-VENDOR-1' })
+    .expect(200);
+  assert.equal(paidExpense.body.data.expense.status, 'partially_paid');
+  await request(app)
+    .post(`${financeRoot}/expenses/${expense.body.data.expense._id}/reverse`)
+    .set(adminHeaders)
+    .send({ reason: 'Cannot reverse expense with posted vendor payment' })
+    .expect(409);
+  const vendorPayment = paidExpense.body.data.expense.vendorPayments[0];
+  const reversedVendorPayment = await request(app)
+    .post(
+      `${financeRoot}/expenses/${expense.body.data.expense._id}/payments/${vendorPayment._id}/reverse`,
+    )
+    .set(adminHeaders)
+    .send({ reason: 'Vendor transfer was returned by the bank' })
+    .expect(200);
+  assert.equal(reversedVendorPayment.body.data.expense.paidMinor, 0);
+  assert.equal(reversedVendorPayment.body.data.expense.status, 'posted');
+  const vendorPaymentReversal = await models.JournalEntry.findById(
+    reversedVendorPayment.body.data.expense.vendorPayments[0].reversalJournalEntryId,
+  ).lean();
+  assert.equal(vendorPaymentReversal.debitTotalMinor, vendorPaymentReversal.creditTotalMinor);
+  assert.equal(vendorPaymentReversal.reversalOf.toString(), vendorPayment.journalEntryId);
+  await request(app)
+    .post(
+      `${financeRoot}/expenses/${expense.body.data.expense._id}/payments/${vendorPayment._id}/reverse`,
+    )
+    .set(adminHeaders)
+    .send({ reason: 'Duplicate reversal attempt' })
+    .expect(409);
+  const reversedPaidExpense = await request(app)
+    .post(`${financeRoot}/expenses/${expense.body.data.expense._id}/reverse`)
+    .set(adminHeaders)
+    .send({ reason: 'Vendor payment returned and expense cancelled' })
+    .expect(200);
+  assert.equal(reversedPaidExpense.body.data.expense.status, 'reversed');
+
+  const reversalExpense = await request(app)
+    .post(`${financeRoot}/expenses`)
+    .set(adminHeaders)
+    .send({
+      vendorId: vendor.body.data.vendor._id,
+      expenseAccountId: expenseAccount._id,
+      amountMinor: 200,
+      currency: 'INR',
+      incurredAt: new Date().toISOString(),
+      description: 'Duplicate un-paid invoice',
+      reference: 'INV-DUP-01',
+    })
+    .expect(201);
+  const reversalApproved = await request(app)
+    .post(`${financeRoot}/expenses/${reversalExpense.body.data.expense._id}/approve`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  const reversed = await request(app)
+    .post(`${financeRoot}/expenses/${reversalExpense.body.data.expense._id}/reverse`)
+    .set(adminHeaders)
+    .send({ reason: 'Duplicate invoice voided before payment' })
+    .expect(200);
+  assert.equal(reversed.body.data.expense.status, 'reversed');
+  const reversalJournal = await models.JournalEntry.findById(
+    reversed.body.data.expense.reversalJournalEntryId,
+  ).lean();
+  assert.equal(reversalJournal.debitTotalMinor, reversalJournal.creditTotalMinor);
+  assert.equal(
+    reversalJournal.reversalOf.toString(),
+    reversalApproved.body.data.expense.journalEntryId,
+  );
+
+  const settlement = await request(app)
+    .post(`${financeRoot}/settlements`)
+    .set(adminHeaders)
+    .send({
+      bankAccountId: String(bankAccount._id),
+      reference: 'RZP-SETTLE-001',
+      amountMinor: 200,
+      settledAt: new Date().toISOString(),
+    })
+    .expect(201);
+  assert.equal(
+    settlement.body.data.journalEntry.debitTotalMinor,
+    settlement.body.data.journalEntry.creditTotalMinor,
+  );
+  const csv = [
+    'Date,Description,Ref,Debit,Credit,Balance',
+    `${new Date().toISOString().slice(0, 10)},Razorpay settlement,RZP-SETTLE-001,0,2.00,2.00`,
+  ].join('\n');
+  const importedResponse = await request(app)
+    .post(`${financeRoot}/reconciliation/import`)
+    .set(adminHeaders)
+    .send({
+      accountId: String(bankAccount._id),
+      sourceName: 'bank-october.csv',
+      csv,
+      mapping: {
+        date: 'Date',
+        description: 'Description',
+        reference: 'Ref',
+        debit: 'Debit',
+        credit: 'Credit',
+        balance: 'Balance',
+      },
+    });
+  assert.equal(importedResponse.status, 201, JSON.stringify(importedResponse.body));
+  const imported = importedResponse;
+  const statementLine = imported.body.data.lines[0];
+  const matchResponse = await request(app)
+    .post(`${financeRoot}/reconciliation/lines/${statementLine._id}/match`)
+    .set(adminHeaders)
+    .send({ journalEntryId: settlement.body.data.journalEntry._id });
+  assert.equal(
+    matchResponse.status,
+    200,
+    JSON.stringify({
+      response: matchResponse.body,
+      line: statementLine,
+      journalEntry: settlement.body.data.journalEntry,
+    }),
+  );
+  const reconciliation = await request(app)
+    .get(`${financeRoot}/reconciliation/lines?importId=${imported.body.data.statement._id}`)
+    .set(adminHeaders)
+    .expect(200);
+  assert.equal(reconciliation.body.data.summary.transactionCount, 1);
+  assert.equal(reconciliation.body.data.summary.matchedCount, 1);
+  assert.equal(reconciliation.body.data.summary.unmatchedCount, 0);
+
+  const reports = await request(app)
+    .get(`${financeRoot}/reports/summary?from=2026-01-01T00:00:00.000Z&to=2027-01-01T00:00:00.000Z`)
+    .set(adminHeaders)
+    .expect(200);
+  assert.equal(reports.body.data.currency, 'INR');
+  assert.equal(reports.body.data.collectedMinor, 400);
+  assert.equal(reports.body.data.expensesPostedMinor, 0);
+  assert.equal(reports.body.data.duesMinor, 800);
+  const ledgerEntries = await models.JournalEntry.find({ societyId: society._id }).lean();
+  assert.ok(ledgerEntries.length >= 5);
+  assert.ok(
+    ledgerEntries.every(
+      ({ debitTotalMinor, creditTotalMinor }) => debitTotalMinor === creditTotalMinor,
+    ),
   );
 });

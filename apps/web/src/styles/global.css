@@ -720,6 +720,118 @@ textarea {
   border-color: var(--color-danger);
 }
 
+.finance-grid,
+.finance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.finance-form {
+  display: grid;
+  max-width: 520px;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.finance-form--wide {
+  max-width: none;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.finance-form--wide .form-field:has(textarea),
+.finance-form--wide > button,
+.finance-form--wide .finance-checkbox {
+  grid-column: 1 / -1;
+}
+
+.finance-toolbar,
+.finance-inline,
+.finance-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.finance-toolbar {
+  align-items: end;
+}
+
+.finance-toolbar .form-field {
+  min-width: 180px;
+}
+
+.finance-summary-item {
+  display: grid;
+  gap: var(--space-1);
+  min-height: 82px;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+}
+
+.finance-summary-item span,
+.muted,
+.finance-currency {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.finance-summary-item strong {
+  font-size: var(--font-size-lg);
+}
+
+.finance-webhook {
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-sm);
+}
+
+.finance-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.finance-checkbox input {
+  min-width: 18px;
+  min-height: 18px;
+}
+
+.finance-refund-form {
+  max-width: none;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.finance-refund-list,
+.finance-reconciliation {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.finance-reconcile-row,
+.finance-vendor-payment {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(200px, 1fr);
+  align-items: end;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.finance-vendor-payment > div:first-child {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.finance-vendor-payment .button,
+.finance-refund-form .button {
+  align-self: end;
+}
+
 .form-field__hint,
 .form-field__error {
   font-size: var(--font-size-xs);
@@ -903,6 +1015,21 @@ textarea {
 
   .overview-grid {
     grid-template-columns: 1fr;
+  }
+
+  .finance-grid,
+  .finance-summary-grid,
+  .finance-form--wide,
+  .finance-refund-form,
+  .finance-reconcile-row,
+  .finance-vendor-payment {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-form--wide .form-field:has(textarea),
+  .finance-form--wide > button,
+  .finance-form--wide .finance-checkbox {
+    grid-column: auto;
   }
 }
 

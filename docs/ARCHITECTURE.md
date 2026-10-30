@@ -9,7 +9,7 @@ Related: [SRS](./SRS.md), [Database ERD](./DATABASE_ERD.md), [Module Workflows](
 flowchart LR
   SA[Super Admin Web] --> API[Versioned Backend API]
   AD[Society Admin Web] --> API
-  OW[House Owner Web / Mobile client decision pending] --> API
+  OW[House Owner Web / Mobile] --> API
   API --> AUTH[Identity and session boundary]
   API --> APP[Domain services]
   APP --> DB[(Tenant-aware operational datastore)]
@@ -20,7 +20,7 @@ flowchart LR
   JOB --> OBS
 ```
 
-Clients are untrusted presentation layers. The backend is the policy and business-rule enforcement point. External services are behind explicit adapters; no integration is assumed just because an interface is shown.
+Clients are untrusted presentation layers. The backend is the policy and business-rule enforcement point. External services are behind explicit adapters; Razorpay per-society payment integration is approved, while other providers are not assumed just because an interface is shown.
 
 **Current implementation note:** The Web application now provides a Super Admin
 console backed by `/api/v1/platform` APIs for registration review, tenant lifecycle,
@@ -44,8 +44,8 @@ occupancy, vehicle, parking, and import-report records are society-scoped Mongoo
 models. Owner read projections resolve linked flats from current ownership/occupancy
 records; clients cannot widen that scope with supplied IDs. The Web application
 provides the Society Admin management workspace, while Mobile provides read-only
-House Owner property/profile and billing screens. Imports are bounded JSON batches
-with downloadable row-error CSV.
+House Owner property/profile, billing, and payment/receipt screens. Imports are
+bounded JSON batches with downloadable row-error CSV.
 
 Maintenance billing is tenant-scoped under `/api/v1/societies/{societyId}/billing`.
 The backend snapshots immutable charge-rule revisions and calculation inputs into
@@ -54,8 +54,18 @@ linked bill items, adjustments, receipts, and in-app reminders. Society Admins
 review and issue bills, record FIFO or explicit receipt allocations, import
 reconciled opening balances, and view ageing. House Owner requests are filtered to
 issued bills whose ownership-period snapshot includes the active membership. PDF
-downloads are generated on demand and audited. Payment processing, external
-reminder delivery, expenses, and a general ledger are not implemented.
+downloads are generated on demand and audited.
+
+The society finance domain is exposed through
+`/api/v1/societies/{societyId}/finance`. Razorpay accounts are configured per
+society; key and webhook secrets are encrypted server-side. The separate webhook
+route `/api/v1/webhooks/razorpay/{societyId}` verifies raw-body signatures and
+provider payment details before capture, with provider event-id idempotency.
+Payment/receipt allocations, vendor expenses/payables, refunds, vendor-payment
+reversals, gateway settlements, bank-statement CSV imports, account journals, and
+reports are society-scoped and audited. Each ledger entry has equal debit/credit
+totals and immutable snapshots. SaaS subscription billing is outside society
+ledgers.
 
 ## 2. Logical components
 
@@ -132,6 +142,9 @@ The implemented SocietySAAS property resources use society-scoped routes:
 /api/v1/societies/{societyId}/residents
 /api/v1/societies/{societyId}/parking-slots
 /api/v1/societies/{societyId}/my-property
+/api/v1/societies/{societyId}/billing
+/api/v1/societies/{societyId}/finance
+/api/v1/webhooks/razorpay/{societyId}
 ```
 
 The server must confirm each `{tenantId}` is in the caller's authorized scope. Do not put secrets or sensitive identity data in URLs. Use request IDs and idempotency keys for retry-prone commands. Integrations use least-privilege credentials and validated, signed callbacks as appropriate.
@@ -141,7 +154,12 @@ The server must confirm each `{tenantId}` is in the caller's authorized scope. D
 - Canonical balances are calculated from committed financial events and allocations.
 - Decimal precision, currency and posting status are explicit; no floating-point arithmetic.
 - A posted entry is immutable; correction is a new linked event.
-- Posting and audit/outbox intent are atomic or durably coupled. Notification/provider delivery happens after commit and cannot falsify the business transaction.
+- Target requirement: posting and audit/outbox intent must be atomic or durably
+  coupled. Current finance posting spans multiple MongoDB document writes without a
+  multi-document transaction or durable outbox/recovery mechanism. Production
+  posting is gated on transaction-capable MongoDB or an implemented, tested durable
+  recovery/reconciliation design. Provider callbacks are idempotent and do not
+  establish success from client redirects.
 - Reconciliation/reporting uses a consistent snapshot or documented cutoff semantics.
 
 ## 6. Availability, observability, and recovery

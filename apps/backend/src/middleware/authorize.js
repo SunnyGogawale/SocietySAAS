@@ -15,6 +15,8 @@ const ROLE_PERMISSIONS = Object.freeze({
     'parking:manage',
     'billing:manage',
     'billing:read',
+    'finance:manage',
+    'finance:read',
   ]),
   house_owner: new Set([
     'profile:read',

@@ -10,6 +10,7 @@ const societyNavigation = [
   { label: 'Society settings', path: '/settings' },
   { label: 'Properties and residents', path: '/properties' },
   { label: 'Maintenance billing', path: '/billing' },
+  { label: 'Payments and accounting', path: '/finance' },
 ];
 const platformNavigation = [
   { label: 'Dashboard', path: '/' },
@@ -31,7 +32,7 @@ export default function AppLayout() {
       : societyNavigation.filter((item) =>
           activeSociety?.role === 'society_admin'
             ? true
-            : item.path !== '/properties' && item.path !== '/billing',
+            : item.path !== '/properties' && item.path !== '/billing' && item.path !== '/finance',
         );
   const navigate = useNavigate();
 

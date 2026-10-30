@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Linking, StyleSheet, Text, View } from 'react-native';
 import designTokens from '@societysaas/design-tokens';
 import { useAuth } from '../auth/AuthContext';
 import { ActionButton } from '../components/ActionButton';
 import { Feedback, LoadingState } from '../components/Feedback';
+import { FormField } from '../components/FormField';
 import { Panel } from '../components/Panel';
 import { Screen } from '../components/Screen';
 import { ScreenHeading } from '../components/ScreenHeading';
@@ -24,10 +25,35 @@ function dateLabel(value) {
   return new Date(value).toLocaleDateString();
 }
 
+function amountMinor(value, currencyCode) {
+  const digits = new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency: currencyCode,
+  }).resolvedOptions().maximumFractionDigits;
+  const match = String(value)
+    .trim()
+    .match(/^(0|[1-9]\d*)(?:\.(\d+))?$/);
+  if (!match || (match[2]?.length ?? 0) > digits) {
+    throw new Error(`Enter an amount with no more than ${digits} decimal places.`);
+  }
+  return Number(match[1]) * 10 ** digits + Number((match[2] ?? '').padEnd(digits, '0') || 0);
+}
+
+function amountLabel(amount, currencyCode) {
+  const digits = new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency: currencyCode,
+  }).resolvedOptions().maximumFractionDigits;
+  return (amount / 10 ** digits).toFixed(digits);
+}
+
 export function BillingScreen() {
   const { activeSociety, request, token } = useAuth();
   const [bills, setBills] = useState([]);
   const [reminders, setReminders] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [paymentAmounts, setPaymentAmounts] = useState({});
+  const [notice, setNotice] = useState('');
   const [selectedBill, setSelectedBill] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -36,24 +62,63 @@ export function BillingScreen() {
     if (!activeSociety?.id) {
       setBills([]);
       setReminders([]);
+      setPayments([]);
       return;
     }
     setLoading(true);
     setError('');
     try {
       const base = `/societies/${encodeURIComponent(activeSociety.id)}/billing`;
-      const [billResult, reminderResult] = await Promise.all([
+      const [billResult, reminderResult, paymentResult] = await Promise.all([
         request(`${base}/bills?limit=100`, { token }),
         request(`${base}/reminders`, { token }),
+        request(`/societies/${encodeURIComponent(activeSociety.id)}/finance/payments`, {
+          token,
+        }),
       ]);
       setBills(billResult.bills ?? []);
       setReminders(reminderResult.reminders ?? []);
+      setPayments(paymentResult.payments ?? []);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setLoading(false);
     }
   }, [activeSociety?.id, request, token]);
+
+  async function payBill(bill) {
+    setError('');
+    setNotice('');
+    try {
+      const currencyCode = bill.currency;
+      const amount = amountMinor(
+        paymentAmounts[bill.id] ?? amountLabel(bill.outstandingMinor, currencyCode),
+        currencyCode,
+      );
+      if (amount > bill.outstandingMinor) {
+        throw new Error('Payment cannot exceed the outstanding bill balance.');
+      }
+      const result = await request(
+        `/societies/${encodeURIComponent(activeSociety.id)}/finance/payments`,
+        {
+          method: 'POST',
+          body: {
+            billId: bill.id,
+            amountMinor: amount,
+            idempotencyKey: `mobile-${bill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          },
+          token,
+        },
+      );
+      await Linking.openURL(result.shortUrl);
+      setNotice(
+        'Secure Razorpay checkout opened. Payment status updates after provider confirmation.',
+      );
+      await refresh();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
 
   useEffect(() => {
     void refresh();
@@ -96,6 +161,7 @@ export function BillingScreen() {
         description="Issued bills, itemized charges, outstanding balances, payment history, and in-app reminders."
       />
       {error ? <Feedback tone="danger">{error}</Feedback> : null}
+      {notice ? <Feedback>{notice}</Feedback> : null}
       {!activeSociety ? <Feedback>Select a society to view bills.</Feedback> : null}
       {loading ? <LoadingState label="Loading your bills" /> : null}
       {reminders.length ? (
@@ -133,6 +199,19 @@ export function BillingScreen() {
             {currency(bill.outstandingMinor, bill.currency)}
           </Text>
           <Text style={styles.status}>Status: {bill.status.replaceAll('_', ' ')}</Text>
+          {bill.outstandingMinor > 0 ? (
+            <View style={styles.payment}>
+              <FormField
+                label={`Payment amount (${bill.currency})`}
+                keyboardType="decimal-pad"
+                onChangeText={(value) =>
+                  setPaymentAmounts((current) => ({ ...current, [bill.id]: value }))
+                }
+                value={paymentAmounts[bill.id] ?? amountLabel(bill.outstandingMinor, bill.currency)}
+              />
+              <ActionButton onPress={() => void payBill(bill)}>Pay online</ActionButton>
+            </View>
+          ) : null}
           <ActionButton onPress={() => void showBill(bill.id)} variant="secondary">
             {selectedBill?.id === bill.id ? 'Hide bill details' : 'View itemized bill'}
           </ActionButton>
@@ -174,6 +253,27 @@ export function BillingScreen() {
           ) : null}
         </Panel>
       ))}
+      <Panel title="Payment history and receipts">
+        {payments.length ? (
+          payments.map((payment) => (
+            <View key={payment.id} style={styles.paymentHistory}>
+              <Text style={styles.detail}>
+                {dateLabel(payment.createdAt)} · {payment.method.replaceAll('_', ' ')} ·{' '}
+                {currency(payment.amountMinor, payment.currency)}
+              </Text>
+              <Text style={styles.status}>Status: {payment.status.replaceAll('_', ' ')}</Text>
+              {payment.receiptId?.receiptNumber ? (
+                <Text style={styles.detail}>
+                  Receipt {payment.receiptId.receiptNumber} ·{' '}
+                  {dateLabel(payment.receiptId.receivedAt)}
+                </Text>
+              ) : null}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.detail}>No payments or receipts are recorded yet.</Text>
+        )}
+      </Panel>
     </Screen>
   );
 }
@@ -187,6 +287,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing[3],
+  },
+  payment: { gap: spacing[3], marginTop: spacing[3] },
+  paymentHistory: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing[1],
+    paddingVertical: spacing[2],
   },
   sectionTitle: {
     color: colors.text,
