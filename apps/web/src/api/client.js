@@ -39,3 +39,23 @@ export async function apiRequest(path, { method = 'GET', body, headers = {} } = 
   if (responseCsrfToken) updateCsrfToken(responseCsrfToken);
   return payload.data;
 }
+
+export async function downloadPdf(path, filename) {
+  const response = await fetch(`${apiBaseUrl}${path}`, { credentials: 'include' });
+  if (!response.ok) {
+    let message = 'The bill could not be downloaded.';
+    try {
+      const payload = await response.json();
+      message = payload.error?.message ?? message;
+    } catch {
+      // The endpoint may return a non-JSON server error.
+    }
+    throw new Error(message);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

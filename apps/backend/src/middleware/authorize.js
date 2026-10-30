@@ -13,8 +13,16 @@ const ROLE_PERMISSIONS = Object.freeze({
     'residents:read',
     'residents:manage',
     'parking:manage',
+    'billing:manage',
+    'billing:read',
   ]),
-  house_owner: new Set(['profile:read', 'settings:read', 'property:read', 'residents:read']),
+  house_owner: new Set([
+    'profile:read',
+    'settings:read',
+    'property:read',
+    'residents:read',
+    'billing:read',
+  ]),
 });
 
 function requirePlatformAdmin(audit) {

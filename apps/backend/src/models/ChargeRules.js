@@ -10,6 +10,17 @@ const chargeItemSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const discountSchema = new mongoose.Schema(
+  {
+    code: { type: String, required: true, trim: true, lowercase: true, maxlength: 64 },
+    name: { type: String, required: true, trim: true, maxlength: 120 },
+    calculation: { type: String, enum: ['fixed_per_home', 'percentage'], required: true },
+    amountMinor: { type: Number, min: 0, default: null },
+    rateBasisPoints: { type: Number, min: 0, max: 10000, default: null },
+  },
+  { _id: false },
+);
+
 const chargeRulesSchema = new mongoose.Schema(
   {
     societyId: {
@@ -33,6 +44,7 @@ const chargeRulesSchema = new mongoose.Schema(
       immutable: true,
     },
     charges: { type: [chargeItemSchema], required: true, immutable: true },
+    discounts: { type: [discountSchema], default: [], immutable: true },
     dueDayOfPeriod: { type: Number, required: true, min: 1, max: 28, immutable: true },
     lateFee: {
       type: {
@@ -43,6 +55,7 @@ const chargeRulesSchema = new mongoose.Schema(
       },
       amountMinor: { type: Number, min: 0, default: null, immutable: true },
       rateBasisPoints: { type: Number, min: 0, max: 10000, default: null, immutable: true },
+      capAmountMinor: { type: Number, min: 0, default: null, immutable: true },
     },
     gracePeriodDays: { type: Number, required: true, min: 0, max: 365, immutable: true },
     createdBy: {

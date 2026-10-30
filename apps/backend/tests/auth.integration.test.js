@@ -8,6 +8,7 @@ const { createApp } = require('../src/app');
 const models = require('../src/models');
 const { hashPassword } = require('../src/utils/password');
 const { createRawToken, hashToken } = require('../src/utils/securityToken');
+const { multiplyRateByArea, roundHalfUp } = require('../src/services/billing.service');
 
 let mongo;
 const delivery = { invitations: [], resets: [], verifications: [] };
@@ -497,7 +498,7 @@ test('society configuration is tenant-scoped, admin-managed, audited, and preser
       },
     ],
     dueDayOfPeriod: 10,
-    lateFee: { type: 'fixed', amountMinor: 5000 },
+    lateFee: { type: 'percentage', rateBasisPoints: 100, capAmountMinor: 5000 },
     gracePeriodDays: 7,
   };
   await request(app)
@@ -1288,4 +1289,408 @@ test('property imports retain row errors in tenant-scoped downloadable reports',
     .get(`/api/v1/societies/${otherSociety._id}/property-imports/${imported.body.data.id}/errors`)
     .set(headers)
     .expect(404);
+});
+
+test('maintenance billing prorates immutably, allocates FIFO, scopes owners, assesses capped fees, and renders authorized PDFs', async () => {
+  const admin = await createUser({ email: 'billing-admin@example.test' });
+  const owner = await createUser({ email: 'billing-owner@example.test' });
+  const otherOwner = await createUser({ email: 'billing-other-owner@example.test' });
+  const society = await createSociety('billing-society');
+  const otherSociety = await createSociety('unrelated-billing-society');
+  await addMembership(admin, society);
+  const ownerMembership = await addMembership(owner, society, 'house_owner');
+  const otherOwnerMembership = await addMembership(otherOwner, society, 'house_owner');
+  await addMembership(admin, otherSociety);
+  await models.SocietySettings.create({ societyId: society._id, areaUnit: 'square_metre' });
+
+  const adminLogin = await login(admin.email);
+  const adminHeaders = bearer(adminLogin.body.data.sessionToken);
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  const ownerLogin = await login(owner.email);
+  const ownerHeaders = bearer(ownerLogin.body.data.sessionToken);
+  await request(app)
+    .post(`/api/v1/auth/societies/${society._id}/select`)
+    .set(ownerHeaders)
+    .send({})
+    .expect(200);
+
+  const building = await models.Building.create({
+    societyId: society._id,
+    name: 'Billing tower',
+    code: 'BT',
+  });
+  const floor = await models.Floor.create({
+    societyId: society._id,
+    buildingId: building._id,
+    floorNumber: 1,
+  });
+  const flat = await models.Flat.create({
+    societyId: society._id,
+    buildingId: building._id,
+    floorId: floor._id,
+    flatNumber: '1A',
+    area: 10.5,
+    areaUnit: 'square_metre',
+    propertyType: 'apartment',
+  });
+  await models.Ownership.create({
+    societyId: society._id,
+    flatId: flat._id,
+    membershipId: ownerMembership._id,
+    ownershipType: 'owner',
+    status: 'active',
+    startsAt: new Date('2026-01-10T00:00:00.000Z'),
+    createdBy: admin._id,
+  });
+  const rules = await models.ChargeRules.create({
+    societyId: society._id,
+    version: 1,
+    effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+    frequency: 'monthly',
+    areaUnit: 'square_metre',
+    charges: [
+      {
+        code: 'base',
+        name: 'Base maintenance',
+        calculation: 'fixed_per_home',
+        amountMinor: 3100,
+      },
+      {
+        code: 'area',
+        name: 'Area maintenance',
+        calculation: 'per_area',
+        amountMinor: 100,
+      },
+    ],
+    discounts: [
+      {
+        code: 'concession',
+        name: 'Configured concession',
+        calculation: 'percentage',
+        rateBasisPoints: 500,
+      },
+    ],
+    dueDayOfPeriod: 10,
+    lateFee: { type: 'percentage', rateBasisPoints: 1000, capAmountMinor: 500 },
+    gracePeriodDays: 0,
+    createdBy: admin._id,
+  });
+  assert.equal(roundHalfUp(5n, 2n), 3);
+  assert.equal(multiplyRateByArea(100, 10.5, 22, 31), 745);
+  assert.ok(rules._id);
+
+  async function generateAndIssue(periodStart, periodEnd) {
+    const preview = await request(app)
+      .post(`/api/v1/societies/${society._id}/billing/runs/preview`)
+      .set(adminHeaders)
+      .send({ periodStart, periodEnd })
+      .expect(201);
+    const runId = preview.body.data.run._id;
+    assert.equal(preview.body.data.run.preview.billCount, 1);
+    for (const action of ['review', 'approve', 'issue']) {
+      await request(app)
+        .post(`/api/v1/societies/${society._id}/billing/runs/${runId}/${action}`)
+        .set(adminHeaders)
+        .send({})
+        .expect(200);
+    }
+    return preview.body.data.bills[0];
+  }
+
+  const januaryBill = await generateAndIssue('2026-01-01', '2026-01-31');
+  assert.equal(januaryBill.subtotalMinor, 2945);
+  assert.equal(januaryBill.discountMinor, 147);
+  assert.equal(januaryBill.totalMinor, 2798);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/runs/preview`)
+    .set(adminHeaders)
+    .send({ periodStart: '2026-01-01', periodEnd: '2026-01-31' })
+    .expect(409);
+
+  const receipt = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/receipts`)
+    .set(adminHeaders)
+    .send({
+      flatId: String(flat._id),
+      payerMembershipId: String(ownerMembership._id),
+      amountMinor: 3000,
+      method: 'bank_transfer',
+      reference: 'BANK-001',
+    })
+    .expect(201);
+  assert.equal(receipt.body.data.receipt.allocations[0].amountMinor, 2798);
+  assert.equal(receipt.body.data.receipt.unappliedMinor, 202);
+
+  const februaryBill = await generateAndIssue('2026-02-01', '2026-02-28');
+  assert.equal(februaryBill.totalMinor, 3942);
+  const februaryDetail = await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${februaryBill.id}`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(februaryDetail.body.data.paidMinor, 202);
+  assert.equal(februaryDetail.body.data.outstandingMinor, 3740);
+  assert.equal(februaryDetail.body.data.payments.length, 1);
+
+  const lateFees = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/late-fees/assess`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  assert.equal(lateFees.body.data.created, 1);
+  const repeatedLateFees = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/late-fees/assess`)
+    .set(adminHeaders)
+    .send({})
+    .expect(200);
+  assert.equal(repeatedLateFees.body.data.created, 0);
+
+  const adjustment = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/bills/${februaryBill.id}/adjustments`)
+    .set(adminHeaders)
+    .send({
+      direction: 'credit',
+      category: 'adjustment',
+      amountMinor: 100,
+      reason: 'Correct an approved overcharge',
+    })
+    .expect(201);
+  for (const action of ['approve', 'issue']) {
+    await request(app)
+      .post(
+        `/api/v1/societies/${society._id}/billing/adjustments/${adjustment.body.data.adjustment._id}/${action}`,
+      )
+      .set(adminHeaders)
+      .send({})
+      .expect(200);
+  }
+  const adjustedBill = await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${februaryBill.id}`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(adjustedBill.body.data.outstandingMinor, 4014);
+  const excessCredit = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/bills/${februaryBill.id}/adjustments`)
+    .set(adminHeaders)
+    .send({
+      direction: 'credit',
+      category: 'adjustment',
+      amountMinor: 5000,
+      reason: 'Carry forward the verified excess credit',
+    })
+    .expect(201);
+  for (const action of ['approve', 'issue']) {
+    await request(app)
+      .post(
+        `/api/v1/societies/${society._id}/billing/adjustments/${excessCredit.body.data.adjustment._id}/${action}`,
+      )
+      .set(adminHeaders)
+      .send({})
+      .expect(200);
+  }
+  const creditedBill = await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${februaryBill.id}`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(creditedBill.body.data.outstandingMinor, 0);
+  assert.equal(creditedBill.body.data.availableCreditMinor, 986);
+
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/bills/${januaryBill.id}/cancel`)
+    .set(adminHeaders)
+    .send({ reason: 'Attempt to cancel a bill that has a receipt' })
+    .expect(409);
+  const pdf = await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${februaryBill.id}/pdf`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.match(pdf.headers['content-type'], /application\/pdf/);
+  assert.ok(pdf.body.length > 500);
+
+  await models.ChargeRules.create({
+    societyId: society._id,
+    version: 2,
+    effectiveFrom: new Date('2026-03-01T00:00:00.000Z'),
+    frequency: 'monthly',
+    areaUnit: 'square_metre',
+    charges: [
+      { code: 'base', name: 'Base maintenance', calculation: 'fixed_per_home', amountMinor: 3200 },
+      { code: 'area', name: 'Area maintenance', calculation: 'per_area', amountMinor: 100 },
+    ],
+    discounts: [
+      {
+        code: 'concession',
+        name: 'Configured concession',
+        calculation: 'percentage',
+        rateBasisPoints: 500,
+      },
+    ],
+    dueDayOfPeriod: 10,
+    lateFee: { type: 'percentage', rateBasisPoints: 1000, capAmountMinor: 500 },
+    gracePeriodDays: 0,
+    createdBy: admin._id,
+  });
+  const preservedFebruary = await models.MaintenanceBill.findById(februaryBill.id).lean();
+  assert.equal(preservedFebruary.chargeRuleVersion, 1);
+  assert.equal(preservedFebruary.calculationSnapshot.chargeRules.charges[0].amountMinor, 3100);
+
+  const otherFlat = await models.Flat.create({
+    societyId: society._id,
+    buildingId: building._id,
+    floorId: floor._id,
+    flatNumber: '1B',
+    area: 12,
+    areaUnit: 'square_metre',
+    propertyType: 'apartment',
+  });
+  await models.Ownership.create({
+    societyId: society._id,
+    flatId: otherFlat._id,
+    membershipId: otherOwnerMembership._id,
+    ownershipType: 'owner',
+    status: 'active',
+    startsAt: new Date('2026-01-01T00:00:00.000Z'),
+    createdBy: admin._id,
+  });
+  const otherBill = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/ad-hoc`)
+    .set(adminHeaders)
+    .send({
+      flatId: String(otherFlat._id),
+      amountMinor: 500,
+      description: 'Separate flat charge',
+      reason: 'Approved building repair',
+      dueDate: '2026-11-10',
+    })
+    .expect(201);
+  for (const action of ['review', 'approve', 'issue']) {
+    await request(app)
+      .post(
+        `/api/v1/societies/${society._id}/billing/bills/${otherBill.body.data.bill.id}/${action}`,
+      )
+      .set(adminHeaders)
+      .send({})
+      .expect(200);
+  }
+  await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${otherBill.body.data.bill.id}`)
+    .set(ownerHeaders)
+    .expect(404);
+  await request(app)
+    .get(`/api/v1/societies/${otherSociety._id}/billing/bills`)
+    .set(adminHeaders)
+    .expect(404);
+
+  const marchPreview = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/runs/preview`)
+    .set(adminHeaders)
+    .send({ periodStart: '2026-03-01', periodEnd: '2026-03-31' })
+    .expect(201);
+  const marchRunId = marchPreview.body.data.run._id;
+  for (const action of ['review', 'approve', 'issue']) {
+    await request(app)
+      .post(`/api/v1/societies/${society._id}/billing/runs/${marchRunId}/${action}`)
+      .set(adminHeaders)
+      .send({})
+      .expect(200);
+  }
+  const marchOwnerBill = marchPreview.body.data.bills.find(
+    (bill) => bill.flatId === String(flat._id),
+  );
+  const marchOwnerDetail = await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${marchOwnerBill.id}`)
+    .set(ownerHeaders)
+    .expect(200);
+  assert.equal(marchOwnerDetail.body.data.paidMinor, 0);
+  assert.equal(marchOwnerDetail.body.data.availableCreditMinor, 0);
+  assert.equal(
+    marchOwnerDetail.body.data.outstandingMinor,
+    marchOwnerDetail.body.data.totalMinor - 986,
+  );
+  assert.ok(
+    marchOwnerDetail.body.data.notes.some(
+      (note) => String(note._id) === String(excessCredit.body.data.adjustment._id),
+    ),
+  );
+  const otherOwnerMarchBill = marchPreview.body.data.bills.find(
+    (bill) => bill.flatId === String(otherFlat._id),
+  );
+  assert.ok(otherOwnerMarchBill);
+  const marchSnapshot = await models.MaintenanceBill.findById(otherOwnerMarchBill.id).lean();
+  assert.equal(marchSnapshot.chargeRuleVersion, 2);
+  await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${otherOwnerMarchBill.id}/pdf`)
+    .set(ownerHeaders)
+    .expect(404);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/bills/${otherOwnerMarchBill.id}/cancel`)
+    .set(adminHeaders)
+    .send({ reason: 'Correct the original recurring charge before payment' })
+    .expect(200);
+  const revised = await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/bills/${otherOwnerMarchBill.id}/revisions`)
+    .set(adminHeaders)
+    .send({
+      reason: 'Use the approved corrected amount',
+      items: [
+        {
+          code: 'corrected-maintenance',
+          description: 'Corrected maintenance amount',
+          category: 'maintenance',
+          calculation: 'manual',
+          rateMinor: 600,
+          quantity: 1,
+          amountMinor: 600,
+        },
+      ],
+    })
+    .expect(201);
+  assert.equal(revised.body.data.bill.revision, 2);
+  assert.equal(revised.body.data.bill.totalMinor, 600);
+  assert.equal(otherOwnerMarchBill.totalMinor, 4180);
+  for (const action of ['review', 'approve', 'issue']) {
+    await request(app)
+      .post(`/api/v1/societies/${society._id}/billing/bills/${revised.body.data.bill.id}/${action}`)
+      .set(adminHeaders)
+      .send({})
+      .expect(200);
+  }
+  await request(app)
+    .get(`/api/v1/societies/${society._id}/billing/bills/${revised.body.data.bill.id}`)
+    .set(ownerHeaders)
+    .expect(404);
+
+  const openingImport = {
+    sourceReference: 'verified-opening-ledger-2026',
+    sourceTotalMinor: 600,
+    rows: [
+      {
+        flatId: String(flat._id),
+        amountMinor: 600,
+        description: 'Opening receivable',
+        reason: 'Verified against signed prior-year register',
+        dueDate: '2026-04-01',
+      },
+    ],
+  };
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/opening-balances/import`)
+    .set(adminHeaders)
+    .send(openingImport)
+    .expect(201);
+  await request(app)
+    .post(`/api/v1/societies/${society._id}/billing/opening-balances/import`)
+    .set(adminHeaders)
+    .send(openingImport)
+    .expect(409);
+  assert.equal(
+    await models.AuditLog.countDocuments({
+      societyId: society._id,
+      action: 'billing.opening_balance.import',
+    }),
+    1,
+  );
 });

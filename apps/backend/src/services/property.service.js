@@ -30,6 +30,7 @@ function createPropertyService({ models, audit, membershipService, clock = () =>
     ParkingSlot,
     PropertyImportReport,
     SocietyMembership,
+    SocietySettings,
     User,
     Vehicle,
     Wing,
@@ -160,6 +161,14 @@ function createPropertyService({ models, audit, membershipService, clock = () =>
   }
 
   async function createFlat({ society, actor, data, request }) {
+    const societySettings = await SocietySettings.findOne({ societyId: society._id }).lean();
+    if (societySettings?.areaUnit && data.areaUnit !== societySettings.areaUnit) {
+      throw new AppError(
+        422,
+        'flat_area_unit_mismatch',
+        'Flat area must use the configured society area unit',
+      );
+    }
     await assertHierarchy({
       societyId: society._id,
       buildingId: data.buildingId,
@@ -1238,6 +1247,14 @@ function createPropertyService({ models, audit, membershipService, clock = () =>
       try {
         if (type === 'properties') {
           const record = propertySchemas.propertyImportRowSchema.parse(raw);
+          const settings = await SocietySettings.findOne({ societyId: society._id }).lean();
+          if (settings?.areaUnit && record.areaUnit !== settings.areaUnit) {
+            throw new AppError(
+              422,
+              'flat_area_unit_mismatch',
+              'Flat area must use the configured society area unit',
+            );
+          }
           const buildingCode = record.buildingCode.toUpperCase();
           let building = await Building.findOne({ societyId: society._id, code: buildingCode });
           if (!building) {

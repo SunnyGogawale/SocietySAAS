@@ -97,17 +97,20 @@ Ticket management does not grant platform operators implicit access to the tenan
 
 **Proposed states:** `open → in_progress → resolved → closed`; optional `reopened` transition requires policy. Define whether House Owner may close/reopen and which roles can see internal notes before implementation.
 
-## 7. Charges, receipts, and allocation (FIN-01/02)
+## 7. Maintenance billing (FIN-01/02/04)
 
-1. Authorized financial operator creates a draft charge with tenant, home/account, amount, currency, due date, and description/period.
-2. Server validates currency scale, policy, and target relationship. Draft does not affect posted balance.
-3. Authorized operator posts charge; posting and audit event are atomic and idempotent.
-4. A receipt is recorded manually or by a separately approved integration. It is not marked settled solely from client confirmation.
-5. Receipt is allocated to eligible posted charges under the approved allocation policy; unapplied amount is separately represented if allowed.
-6. Corrections use reversal/adjustment entries linked to original; no destructive edit of a posted record.
-7. Owner sees permitted posted records and an as-of balance computed under the approved rules.
+1. Society Admin selects a complete billing period. The server selects the latest effective `ChargeRules` revision, verifies configured frequency and currency, and identifies active flats with ownership covering some or all of the period.
+2. The server unions inclusive ownership intervals for each flat, computes actual society-local days, prorates fixed-per-flat and per-area components with half-up rounding, applies configured recurring discounts, and snapshots all inputs and outputs. Per-area billing fails if any eligible flat does not use the society's configured area unit.
+3. The server creates a draft `BillingRun` and draft bills with itemized `BillItems`. A flat with no eligible active owner is reported as skipped. An existing bill for that flat/period blocks duplicate generation.
+4. Society Admin reviews preview totals and skipped flats, approves, then issues the run. Issue assigns invoice numbers and creates in-app bill-issued reminders for eligible owners. No external email/SMS/push is sent.
+5. Ad hoc charges and reconciled opening balances create draft bills and use the same review/approval/issue flow. Opening-balance import requires a source reference and exact match between row totals and the verified source total.
+6. To correct an unpaid issued bill, Society Admin cancels it with a reason; cancellation is denied if any receipt allocation or issued adjustment exists. An explicit revision creates a new immutable bill and keeps the original cancellation record. Otherwise corrections use linked credit/debit notes with reason, approval, and issue. A credit note first reduces its source invoice; any excess is automatically allocated FIFO to later issued bills for that flat whose owner snapshot intersects the credit note's owner snapshot.
+7. Society Admin records a manual receipt against an active owner and flat. Partial payment is allowed. The server applies it to the oldest due eligible bills first, or accepts an explicit audited allocation. Unapplied receipt credit is kept and automatically allocated to later issued bills for that flat and payer.
+8. Monthly late-fee assessment uses the bill's saved rule snapshot, only overdue principal after due/grace date, excludes previous fees/penalties, rounds half up, and enforces the cumulative cap. An idempotency key prevents more than one assessment per bill and calendar month.
+9. Owners can read only issued bills whose ownership-period snapshot includes their active membership. Bill details show items, payment history, adjustments, due amount, and flat account balance. PDF downloads are authorized and audited.
+10. Society Admin can create in-app due/overdue reminders and view ageing buckets. A scheduler, external delivery channels, full general ledger, expenses, and payment-provider settlement are not part of this phase.
 
-**Proposed financial record states:** `draft → posted → reversed` (reversal creates a linked correcting record, not deletion). The treatment of partial payment, credit, late fees, and allocation order is unresolved.
+**Bill state transitions:** `draft → in_review → approved → issued`; unpaid bills may be cancelled with approval and reason; an explicit revision is a new draft with a new revision number. Issued bill items and rule snapshots are immutable.
 
 ## 8. Expenses and reports (FIN-03/04, REP-01)
 

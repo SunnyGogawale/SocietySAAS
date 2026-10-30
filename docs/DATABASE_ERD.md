@@ -59,6 +59,19 @@ erDiagram
   HOME ||--o{ PARKING_ASSIGNMENT : uses
   VEHICLE ||--o{ PARKING_ASSIGNMENT : assigned
   TENANT ||--o{ PROPERTY_IMPORT_REPORT : records
+  TENANT ||--o{ BILLING_RUN : owns
+  CHARGE_RULES ||--o{ BILLING_RUN : snapshots
+  BILLING_RUN ||--o{ MAINTENANCE_BILL : creates
+  TENANT ||--o{ MAINTENANCE_BILL : owns
+  HOME ||--o{ MAINTENANCE_BILL : liable_flat
+  MEMBERSHIP ||--o{ MAINTENANCE_BILL : owner_snapshot
+  MAINTENANCE_BILL ||--o{ BILL_ITEM : itemizes
+  MAINTENANCE_BILL ||--o{ CREDIT_NOTE : corrects
+  TENANT ||--o{ RECEIPT : records
+  MEMBERSHIP ||--o{ RECEIPT : pays
+  RECEIPT }o--o{ MAINTENANCE_BILL : allocates
+  MAINTENANCE_BILL ||--o{ BILLING_REMINDER : notifies
+  MEMBERSHIP ||--o{ BILLING_REMINDER : receives
 ```
 
 The diagram expresses conceptual associations only. For example, `o|` is intentional where a platform-level action may not belong to one tenant. Physical referential constraints must reject cross-tenant relationships.
@@ -83,8 +96,8 @@ The diagram expresses conceptual associations only. For example, `o|` is intenti
 | `SubscriptionPlan`      | Platform-defined plan, limits and optional price metadata                          | Unique plan code; archived plans cannot be newly assigned; payment processing is separate                                                                                                    |
 | `Subscription`          | Tenant's current plan, status, explicit trial period and limit snapshot            | One current subscription per tenant; configured by platform actor; no billing ledger                                                                                                         |
 | `SupportTicket`         | Tenant-scoped support request tracked by the platform                              | Creator and tenant are server-bound; platform ticket access does not imply access to tenant business data                                                                                    |
-| `SocietySettings`       | Tenant-scoped identity, locale, numbering, branding and operational rules          | One settings document per tenant; backend validation; residents receive a restricted read projection                                                                                         |
-| `ChargeRules`           | Versioned future maintenance charge, due-date, late-fee and grace-period rules     | Unique tenant/version; area-based charges require an explicit square-foot or square-metre unit; immutable after creation; effective dates cannot be backdated; never rewrites an issued bill |
+| `SocietySettings`       | Tenant-scoped identity, locale, numbering, branding and operational rules          | One settings document per tenant; includes society-wide area unit; backend validation; residents receive a restricted read projection                                                         |
+| `ChargeRules`           | Versioned future maintenance charge, discount, due-date, late-fee and grace-period rules | Unique tenant/version; area-based charges match configured society unit; immutable after creation; effective dates cannot be backdated; never rewrites an issued bill                    |
 | `ApprovalPolicies`      | Configurable operation approval requirements                                       | One tenant document; unique operation; configuration only, workflows remain separate                                                                                                         |
 | `NotificationTemplates` | Tenant's configured email/SMS/push message templates                               | One tenant document; unique template keys; delivery/rendering is separate                                                                                                                    |
 | `Building`              | Tenant-scoped property building                                                    | Unique code per society; never referenced across tenants                                                                                                                                     |
@@ -97,8 +110,14 @@ The diagram expresses conceptual associations only. For example, `o|` is intenti
 | `ParkingSlot`           | Building parking resource, optionally reserved to a flat                           | Slot number unique within society/building; a reservation must belong to that building                                                                                                       |
 | `ParkingAssignment`     | Effective assignment of a vehicle and flat to a parking slot                       | At most one active assignment per slot and per vehicle; all referenced records belong to the same society                                                                                    |
 | `PropertyImportReport`  | Import summary and row-level validation errors                                     | Tenant and initiating actor are recorded; error download is tenant-authorized and does not expose unrelated rows                                                                             |
+| `BillingRun`            | Preview, review, approval, and issue batch for a complete billing period              | Unique tenant/period/revision; snapshots rule version and aggregate totals; state transitions are audited                                                                                     |
+| `MaintenanceBill`       | Immutable flat-level recurring, ad hoc, revised, or opening-balance invoice            | Tenant, flat, period, owner-membership snapshot, currency, due date, calculation inputs, total, status; one active recurring bill per flat/period                                             |
+| `BillItem`              | Immutable itemized charge or discount on a bill                                       | Tenant and bill IDs agree; amount is integer minor units; rates, calculation, quantity, and reason are preserved                                                                             |
+| `CreditNote`            | Approved linked credit/debit/late-fee correction                                     | Cannot modify original bill; source flat and owner snapshot, per-bill allocations, unapplied credit, reason, actor, approval, issue state, currency, and idempotent monthly fee key are retained |
+| `Receipt`               | Manually recorded payment and its bill allocations                                    | Tenant, flat, active payer membership, explicit currency/method/time/reference; partial/FIFO allocation and unapplied amount are auditable                                                    |
+| `BillingReminder`        | In-app issued/due/overdue reminder state                                              | Tenant, bill, and eligible owner membership agree; unique reminder key prevents duplicate delivery for a date                                                                                |
 
-`ChargeRules` has no relationship to an issued bill in this phase because there is no billing engine or bill entity. A future billing implementation must capture the chosen rule revision and calculated amounts as an immutable bill snapshot rather than resolving bills against the latest settings.
+Every issued recurring bill and run snapshots the immutable `ChargeRules` revision and calculation inputs; later rule changes never recalculate bills. Receipt and credit-note allocations are embedded on their source records and projected into bill balances/history. Unused credit-note value carries forward only to later bills for the same flat with an intersecting owner snapshot. The `Membership` IDs on a bill are the owner snapshot for its ownership-period liability; current active membership is still required to access the bill.
 
 ## 3. Common data requirements
 
@@ -116,7 +135,7 @@ The diagram expresses conceptual associations only. For example, `o|` is intenti
 
 1. Can one person have multiple roles within a tenant or memberships in many tenants? (SRS D-06)
 2. Is an owner-to-home relationship one-to-one, many-to-one, or many-to-many; are renters/occupants represented? (D-07)
-3. Are financial records attached to a home, a member account, or both? How are balances transferred on ownership change? (D-02/D-03/D-07)
+3. Maintenance bills are flat liabilities shared by owners whose ownership intersects the billed period; how outstanding prior-period liability transfers on sale remains unresolved. (D-02/D-03/D-07)
 4. Are expenses records in a lightweight sub-ledger or full chart-of-accounts model? (D-02)
 5. Do announcements need immutable revision history, read receipts, and audience snapshots?
 6. Can a service request exist without a home, and how are internal notes modeled?

@@ -6,6 +6,7 @@ import designTokens from '@societysaas/design-tokens';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { AcceptInvitationScreen } from './screens/AcceptInvitationScreen';
 import { AccountScreen } from './screens/AccountScreen';
+import { BillingScreen } from './screens/BillingScreen';
 import { ActivityScreen } from './screens/ActivityScreen';
 import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
 import { LoginScreen } from './screens/LoginScreen';
@@ -62,6 +63,9 @@ function MainTabs() {
       <Tab.Screen name="Society" component={SocietySettingsScreen} />
       {activeSociety?.role === 'house_owner' ? (
         <Tab.Screen name="My home" component={PropertyScreen} />
+      ) : null}
+      {activeSociety?.role === 'house_owner' ? (
+        <Tab.Screen name="Bills" component={BillingScreen} />
       ) : null}
       <Tab.Screen name="Account" component={AccountScreen} />
     </Tab.Navigator>

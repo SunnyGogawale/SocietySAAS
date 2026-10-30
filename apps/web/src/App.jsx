@@ -4,6 +4,7 @@ import AppLayout from './layouts/AppLayout.jsx';
 import AcceptInvitationPage from './pages/AcceptInvitationPage.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import ActivityPage from './pages/ActivityPage.jsx';
+import BillingPage from './pages/BillingPage.jsx';
 import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import OverviewPage from './pages/OverviewPage.jsx';
@@ -57,6 +58,9 @@ function AppRoutes() {
               <Route path="activity" element={<ActivityPage />} />
               <Route path="account" element={<AccountPage />} />
               <Route path="settings" element={<SocietySettingsPage />} />
+              {activeSociety?.role === 'society_admin' && (
+                <Route path="billing" element={<BillingPage />} />
+              )}
               {user?.platformRole !== 'super_admin' && (
                 <Route
                   path="properties"

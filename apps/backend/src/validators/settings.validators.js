@@ -43,6 +43,7 @@ const societySettingsSchema = z
       .toUpperCase()
       .regex(/^[A-Z]{3}$/)
       .refine((value) => supportedCurrencies.has(value), 'Currency must be a supported ISO code'),
+    areaUnit: z.enum(['square_foot', 'square_metre']).nullable().optional(),
     dateFormat: z.enum(['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']),
     financialYearStartMonth: z.number().int().min(1).max(12),
     financialYearStartDay: z.number().int().min(1).max(31),
@@ -114,16 +115,44 @@ const chargeRulesSchema = z
     frequency: z.enum(['monthly', 'quarterly', 'half_yearly', 'yearly']),
     areaUnit: z.enum(['square_foot', 'square_metre']).nullable(),
     charges: z.array(chargeItemSchema).min(1).max(100),
+    discounts: z
+      .array(
+        z.discriminatedUnion('calculation', [
+          z.strictObject({
+            code: z
+              .string()
+              .trim()
+              .toLowerCase()
+              .min(2)
+              .max(64)
+              .regex(/^[a-z0-9_-]+$/),
+            name: z.string().trim().min(2).max(120),
+            calculation: z.literal('fixed_per_home'),
+            amountMinor: z.number().int().min(0).max(100000000000),
+          }),
+          z.strictObject({
+            code: z
+              .string()
+              .trim()
+              .toLowerCase()
+              .min(2)
+              .max(64)
+              .regex(/^[a-z0-9_-]+$/),
+            name: z.string().trim().min(2).max(120),
+            calculation: z.literal('percentage'),
+            rateBasisPoints: z.number().int().min(0).max(10000),
+          }),
+        ]),
+      )
+      .max(100)
+      .optional(),
     dueDayOfPeriod: z.number().int().min(1).max(28),
     lateFee: z.discriminatedUnion('type', [
       z.strictObject({ type: z.literal('none') }),
       z.strictObject({
-        type: z.literal('fixed'),
-        amountMinor: z.number().int().min(0).max(100000000000),
-      }),
-      z.strictObject({
         type: z.literal('percentage'),
         rateBasisPoints: z.number().int().min(0).max(10000),
+        capAmountMinor: z.number().int().min(0).max(100000000000),
       }),
     ]),
     gracePeriodDays: z.number().int().min(0).max(365),
@@ -135,6 +164,14 @@ const chargeRulesSchema = z
         code: 'custom',
         path: ['charges'],
         message: 'Charge codes must be unique',
+      });
+    }
+    const discountCodes = (value.discounts ?? []).map(({ code }) => code);
+    if (new Set(discountCodes).size !== discountCodes.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['discounts'],
+        message: 'Discount codes must be unique',
       });
     }
     if (value.charges.some(({ calculation }) => calculation === 'per_area') && !value.areaUnit) {

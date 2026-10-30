@@ -19,6 +19,7 @@ const societySettingsSchema = new mongoose.Schema(
       minlength: 3,
       maxlength: 3,
     },
+    areaUnit: { type: String, enum: ['square_foot', 'square_metre'], default: null },
     dateFormat: {
       type: String,
       enum: ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'],

@@ -27,16 +27,15 @@ console backed by `/api/v1/platform` APIs for registration review, tenant lifecy
 subscription plans, support-ticket tracking, audit search/export, and operational
 summaries. The API role-checks every platform endpoint independently of the Web
 navigation. Society Admin support tickets resolve tenant context from the active
-server session and live membership. Accounting, maintenance billing, and payment
-processing are not part of this implementation.
+server session and live membership.
 
 The Society Admin configuration module is exposed through tenant-scoped
 `/api/v1/societies/{societyId}/settings` GET/PATCH routes. A validated active
 membership and server-selected society context are required; write permission is
-limited to Society Admins. Identity/locale/operational settings, approval policies,
-and notification templates are tenant-keyed documents. Charge rules are immutable
-per-society revisions with non-decreasing effective dates. Issued-bill snapshots
-and a billing engine are not present in this phase.
+limited to Society Admins. Identity/locale/operational settings, the society-wide
+area unit, approval policies, and notification templates are tenant-keyed
+documents. Charge rules are immutable per-society revisions with non-decreasing
+effective dates, component discounts, and capped monthly late-fee rules.
 
 Property/resident APIs are mounted under `/api/v1/societies/{societyId}` and use
 the same authenticated session, server-selected society context, active membership,
@@ -44,9 +43,19 @@ permission middleware, validators, and audit service. Property hierarchy, owners
 occupancy, vehicle, parking, and import-report records are society-scoped Mongoose
 models. Owner read projections resolve linked flats from current ownership/occupancy
 records; clients cannot widen that scope with supplied IDs. The Web application
-provides the Society Admin management workspace, while Mobile provides a read-only
-House Owner property/profile screen. Imports are bounded JSON batches with
-downloadable row-error CSV; no financial or invoice endpoint is included.
+provides the Society Admin management workspace, while Mobile provides read-only
+House Owner property/profile and billing screens. Imports are bounded JSON batches
+with downloadable row-error CSV.
+
+Maintenance billing is tenant-scoped under `/api/v1/societies/{societyId}/billing`.
+The backend snapshots immutable charge-rule revisions and calculation inputs into
+periodic runs and bills, uses integer minor-unit/half-up arithmetic, and records
+linked bill items, adjustments, receipts, and in-app reminders. Society Admins
+review and issue bills, record FIFO or explicit receipt allocations, import
+reconciled opening balances, and view ageing. House Owner requests are filtered to
+issued bills whose ownership-period snapshot includes the active membership. PDF
+downloads are generated on demand and audited. Payment processing, external
+reminder delivery, expenses, and a general ledger are not implemented.
 
 ## 2. Logical components
 

@@ -1,10 +1,10 @@
 # SocietySAAS
 
 JavaScript monorepo for the Society Management SaaS, with separate web, mobile, and
-backend applications. The platform currently includes authentication, the
-Super Admin tenant/subscription/support console, Society Admin configuration,
-and property and resident management. Society accounting and maintenance billing
-workflows have not been implemented.
+backend applications. The platform currently includes authentication, the Super Admin
+tenant/subscription/support console, Society Admin configuration, property and
+resident management, and maintenance billing/receivables for Society Admins and
+House Owners.
 
 The product specification is in [`docs/`](./docs/). Decisions that affect financial
 rules, payment processing, retention, and other not-yet-built modules remain open;
@@ -12,12 +12,12 @@ this implementation does not assume those policies.
 
 ## Applications
 
-| Workspace                    | Stack                          | Purpose                                                             |
-| ---------------------------- | ------------------------------ | ------------------------------------------------------------------- |
-| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and Society Admin property/settings workspaces  |
-| `@societysaas/mobile`        | React Native, Expo, JavaScript | House Owner property/profile and society settings views             |
-| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, and property models |
-| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                       |
+| Workspace                    | Stack                          | Purpose                                                                      |
+| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------- |
+| `@societysaas/web`           | React, Vite, JavaScript        | Super Admin console and Society Admin property/settings/billing workspaces   |
+| `@societysaas/mobile`        | React Native, Expo, JavaScript | House Owner property, profile, settings, and bill views                      |
+| `@societysaas/backend`       | Node.js, Express, Mongoose     | Versioned API, authentication, tenant security, property, and billing models |
+| `@societysaas/design-tokens` | JavaScript, CSS                | Shared colors, typography, spacing, and radii                                |
 
 ## Prerequisites
 
@@ -81,11 +81,23 @@ configured; no reset email is sent in that case.
   floors, flats, owner invitations/links, occupancy history, vehicles, parking,
   resident/property lists, imports, and authorized CSV exports. House Owner property
   reads are scoped to active linked flats.
+- Tenant-scoped billing APIs under `/api/v1/societies/:societyId/billing` create
+  recurring run previews, issue bills, record ad hoc charges and reconciled
+  opening balances, approve linked adjustments, record manual receipts, generate
+  in-app reminders, report ageing, and provide authorized bill PDFs. House Owners
+  can read only issued bills whose ownership-period snapshot includes their active
+  membership. Receipt allocation uses FIFO by oldest due bill; excess receipt
+  credit is carried forward to later bills for the same flat and payer.
 
-Maintenance charge-rule updates append immutable, dated revisions. They do not
-recalculate previously issued bills; the repository does not yet include issued
-bills or a billing engine. Logo configuration currently accepts an HTTPS asset URL;
-file upload/storage, notification delivery, and the configured operational
+Maintenance charge-rule updates append immutable, dated revisions. Bills preserve
+the exact rule revision and calculation inputs used; later changes do not
+recalculate issued bills. Financial calculations use integer minor units with
+half-up rounding and the society's configured currency precision. Society area
+units must match across flats and per-area charge rules; no conversions occur.
+Notifications are in-app only. Payment processors, external reminders, a general
+ledger, expenses, taxes/statutory reporting, and jurisdictional accounting
+compliance remain out of scope or unresolved. Logo configuration currently
+accepts an HTTPS asset URL; file upload/storage and other configured operational
 workflows remain out of scope.
 
 Property imports accept validated JSON batches (up to 500 records) with a

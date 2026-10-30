@@ -1,7 +1,8 @@
 const { AppError } = require('../utils/AppError');
 
 function createSettingsService({ models, audit, clock = () => new Date() }) {
-  const { ApprovalPolicies, ChargeRules, NotificationTemplates, Society, SocietySettings } = models;
+  const { ApprovalPolicies, ChargeRules, Flat, NotificationTemplates, Society, SocietySettings } =
+    models;
 
   async function getSocietySettings({ society, isAdmin }) {
     const now = clock();
@@ -53,6 +54,7 @@ function createSettingsService({ models, audit, clock = () => new Date() }) {
       : {
           timeZone: settings.timeZone,
           currency: settings.currency,
+          areaUnit: settings.areaUnit ?? null,
           dateFormat: settings.dateFormat,
           financialYearStartMonth: settings.financialYearStartMonth,
           financialYearStartDay: settings.financialYearStartDay,
@@ -66,6 +68,7 @@ function createSettingsService({ models, audit, clock = () => new Date() }) {
           frequency: latestChargeRules.frequency,
           areaUnit: latestChargeRules.areaUnit ?? null,
           charges: latestChargeRules.charges,
+          discounts: latestChargeRules.discounts ?? [],
           dueDayOfPeriod: latestChargeRules.dueDayOfPeriod,
           lateFee: latestChargeRules.lateFee,
           gracePeriodDays: latestChargeRules.gracePeriodDays,
@@ -85,6 +88,7 @@ function createSettingsService({ models, audit, clock = () => new Date() }) {
               frequency: rule.frequency,
               areaUnit: rule.areaUnit ?? null,
               charges: rule.charges,
+              discounts: rule.discounts ?? [],
               dueDayOfPeriod: rule.dueDayOfPeriod,
               lateFee: rule.lateFee,
               gracePeriodDays: rule.gracePeriodDays,
@@ -109,12 +113,43 @@ function createSettingsService({ models, audit, clock = () => new Date() }) {
       );
     } else if (changes.settings) {
       metadata = { section: 'settings', changedFields: Object.keys(changes.settings) };
+      if (Object.hasOwn(changes.settings, 'areaUnit') && changes.settings.areaUnit) {
+        const [incompatibleFlat, areaRules] = await Promise.all([
+          Flat.exists({ societyId: society._id, areaUnit: { $ne: changes.settings.areaUnit } }),
+          ChargeRules.exists({
+            societyId: society._id,
+            effectiveFrom: { $gte: clock() },
+            charges: { $elemMatch: { calculation: 'per_area' } },
+            areaUnit: { $ne: changes.settings.areaUnit },
+          }),
+        ]);
+        if (incompatibleFlat || areaRules) {
+          throw new AppError(
+            422,
+            'area_unit_in_use',
+            'Existing flats and future per-area charge rules must use the configured society area unit',
+          );
+        }
+      }
       await SocietySettings.findOneAndUpdate(
         { societyId: society._id },
         { $set: changes.settings, $setOnInsert: { societyId: society._id } },
         { upsert: true, returnDocument: 'after', runValidators: true, setDefaultsOnInsert: true },
       );
     } else if (changes.chargeRules) {
+      if (changes.chargeRules.charges.some(({ calculation }) => calculation === 'per_area')) {
+        const settings = await SocietySettings.findOne({ societyId: society._id }).lean();
+        if (
+          changes.chargeRules.charges.some(({ calculation }) => calculation === 'per_area') &&
+          (!settings?.areaUnit || changes.chargeRules.areaUnit !== settings.areaUnit)
+        ) {
+          throw new AppError(
+            422,
+            'area_unit_mismatch',
+            'Configure the society area unit and use it in per-area charge rules',
+          );
+        }
+      }
       const previous = await ChargeRules.findOne({ societyId: society._id })
         .sort({ version: -1 })
         .lean();

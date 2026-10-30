@@ -208,6 +208,7 @@ export default function SocietySettingsPage() {
                   save(event, 'settings', (form) => ({
                     timeZone: read(form, 'timeZone'),
                     currency: read(form, 'currency'),
+                    areaUnit: read(form, 'areaUnit'),
                     dateFormat: read(form, 'dateFormat'),
                     financialYearStartMonth: readNumber(form, 'financialYearStartMonth'),
                     financialYearStartDay: readNumber(form, 'financialYearStartDay'),
@@ -256,6 +257,17 @@ export default function SocietySettingsPage() {
                   maxLength={3}
                   defaultValue={data.settings.currency}
                 />
+                <FormField
+                  as="select"
+                  id="society-area-unit"
+                  label="Society property area unit"
+                  name="areaUnit"
+                  defaultValue={data.settings.areaUnit ?? ''}
+                >
+                  <option value="">Not configured</option>
+                  <option value="square_foot">Square foot</option>
+                  <option value="square_metre">Square metre</option>
+                </FormField>
                 <FormField
                   as="select"
                   id="date-format"
@@ -480,19 +492,19 @@ export default function SocietySettingsPage() {
                     save(event, 'chargeRules', (form) => {
                       const lateFeeType = read(form, 'lateFeeType');
                       const lateFee =
-                        lateFeeType === 'fixed'
-                          ? { type: 'fixed', amountMinor: readNumber(form, 'lateFeeAmountMinor') }
-                          : lateFeeType === 'percentage'
-                            ? {
-                                type: 'percentage',
-                                rateBasisPoints: readNumber(form, 'lateFeeBasisPoints'),
-                              }
-                            : { type: 'none' };
+                        lateFeeType === 'percentage'
+                          ? {
+                              type: 'percentage',
+                              rateBasisPoints: readNumber(form, 'lateFeeBasisPoints'),
+                              capAmountMinor: readNumber(form, 'lateFeeCapMinor'),
+                            }
+                          : { type: 'none' };
                       return {
                         effectiveFrom: `${read(form, 'effectiveFrom')}T00:00:00.000Z`,
                         frequency: read(form, 'frequency'),
                         areaUnit: read(form, 'areaUnit'),
                         charges: jsonField(form, 'charges'),
+                        discounts: jsonField(form, 'discounts'),
                         dueDayOfPeriod: readNumber(form, 'dueDayOfPeriod'),
                         lateFee,
                         gracePeriodDays: readNumber(form, 'gracePeriodDays'),
@@ -558,25 +570,24 @@ export default function SocietySettingsPage() {
                     defaultValue={latestChargeRules?.lateFee?.type ?? 'none'}
                   >
                     <option value="none">None</option>
-                    <option value="fixed">Fixed amount</option>
                     <option value="percentage">Percentage</option>
                   </FormField>
                   <FormField
-                    id="late-fee-amount"
-                    label="Fixed fee (minor currency units)"
-                    name="lateFeeAmountMinor"
-                    type="number"
-                    min="0"
-                    defaultValue={latestChargeRules?.lateFee?.amountMinor ?? 0}
-                  />
-                  <FormField
                     id="late-fee-rate"
-                    label="Percentage (basis points)"
+                    label="Monthly late-fee rate (basis points)"
                     name="lateFeeBasisPoints"
                     type="number"
                     min="0"
                     max="10000"
                     defaultValue={latestChargeRules?.lateFee?.rateBasisPoints ?? 0}
+                  />
+                  <FormField
+                    id="late-fee-cap"
+                    label="Maximum accumulated late fee (minor units)"
+                    name="lateFeeCapMinor"
+                    type="number"
+                    min="0"
+                    defaultValue={latestChargeRules?.lateFee?.capAmountMinor ?? 0}
                   />
                   <FormField
                     as="textarea"
@@ -597,6 +608,15 @@ export default function SocietySettingsPage() {
                       2,
                     )}
                     rows={5}
+                  />
+                  <FormField
+                    as="textarea"
+                    id="discount-items"
+                    label="Recurring discounts (JSON)"
+                    name="discounts"
+                    hint='Example: [{"code":"senior","name":"Senior discount","calculation":"percentage","rateBasisPoints":500}]'
+                    defaultValue={JSON.stringify(latestChargeRules?.discounts ?? [], null, 2)}
+                    rows={4}
                   />
                   <div className="platform-form__actions">
                     <Button disabled={busy} type="submit">
